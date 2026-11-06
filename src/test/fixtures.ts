@@ -1,4 +1,4 @@
-import type { Purchase, SessionActive, SessionFinished, Settings, Tag, UiState } from '../lib/types.ts';
+import type { Persisted, Purchase, SessionActive, SessionFinished, Settings, Tag, UiState } from '../lib/types.ts';
 
 const MINUTE_MS = 60_000;
 
@@ -41,6 +41,10 @@ export function purchaseMake(overrides: Partial<Purchase> = {}): Purchase {
 
 export function settingsMake(overrides: Partial<Settings> = {}): Settings {
   return { strictness: 'strict', defaultDurationMs: 25 * MINUTE_MS, soundOn: true, weekStart: 'sunday', ...overrides };
+}
+
+export function persistedMake(overrides: Partial<Persisted> = {}): Persisted {
+  return { active: undefined, sessions: [], tags: [], purchases: [], settings: settingsMake(), ui: uiMake(), ...overrides };
 }
 
 export function uiMake(overrides: Partial<UiState> = {}): UiState {
