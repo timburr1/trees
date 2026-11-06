@@ -36,7 +36,7 @@ Forest's feature set as the site describes it, against what the prototype does.
 | Tree grows in real time | Yes | Growth stage is a pure function of elapsed fraction. |
 | Tree dies if you leave | Yes | Strict or relaxed (section 5). |
 | Dead trees stay in the forest | Yes | Rendered as withered trees. |
-| Pause | Yes, free | One pause per session, up to `pauseMaxMs` (5 min). Forest locks pause behind a subscription. |
+| Pause | Yes, free | One pause per session, up to `sessionPauseMaxMs` (5 min). Forest locks pause behind a subscription. |
 | Focus tags | Yes | User-created, free. Forest gates custom tags behind Plus. |
 | Forest view | Yes | One tile per session. |
 | Stats by day, week, month, tag | Yes | Streaks included. |
@@ -123,7 +123,7 @@ type SessionFinished = {
 
 `strict` fails the session when the page is away longer than `sessionGraceMs` (a named constant, 15 s). `relaxed` fails only on an explicit give-up. Strict is the default. The product is desktop-first; phones work best in relaxed mode (open question 1).
 
-**Stopwatch** sessions have no planned end. They complete only through a `sessionStop` action, and strict absence still fails them. Growth is `elapsed / stopwatchFullMs` (a named constant, default 60 min) capped at fully grown, and coins use elapsed active time. **Pause** is allowed once per session. `sessionPause` sets `pausedAt`; `sessionResume` adds the pause length to `pausedMs`, clears `pausedAt`, and sets `lastSeenAt = now`. While paused the clock is frozen and absence is ignored. A pause that outlasts `pauseMaxMs` auto-resumes at `pausedAt + pauseMaxMs` with `lastSeenAt` set to that instant, so the normal absence rule then fails a strict session whose user never came back.
+**Stopwatch** sessions have no planned end. They complete through a `sessionStop` action, or by themselves after `timerMaxMs` of active time (3 hours), so an abandoned relaxed stopwatch cannot bank unbounded focus time. Strict absence still fails them. Growth is `elapsed / stopwatchFullMs` (a named constant, default 60 min) capped at fully grown, and coins use elapsed active time. **Pause** is allowed once per session. `sessionPause` sets `pausedAt` and `lastSeenAt = now` (the user just acted); a touch is ignored while paused; `sessionResume` adds the pause length to `pausedMs` (at least 1 ms, so `pausedMs > 0` always marks the pause as used, even after a backward clock), clears `pausedAt`, and sets `lastSeenAt = now`. While paused the clock is frozen and absence is ignored. A pause that outlasts `sessionPauseMaxMs` auto-resumes at `pausedAt + sessionPauseMaxMs` with `lastSeenAt` set to that instant, so the normal absence rule then fails a strict session whose user never came back.
 
 ### 5.2 Detecting absence
 
@@ -135,31 +135,32 @@ type SessionResolution =
   | { kind: 'completed'; at: number }
   | { kind: 'failed'; at: number; reason: 'left' };
 
-function sessionResolve(raw: SessionActive, now: number, graceMs: number, pauseMaxMs: number): SessionResolution {
-  const active = sessionPauseExpire(raw, now, pauseMaxMs);
+// Takes the raw stored session, expires an over-long pause itself, and returns the expired session with the resolution.
+function sessionResolve(raw: SessionActive, now: number): { active: SessionActive; resolution: SessionResolution } {
+  const active = sessionPauseExpire(raw, now);
   if (active.pausedAt !== undefined) {
-    return { kind: 'running' };
+    return { active, resolution: { kind: 'running' } };
   }
-  const endsAt = active.mode.kind === 'countdown' ? active.startedAt + active.mode.plannedMs + active.pausedMs : Infinity;
-  const failsAt = active.lastSeenAt + graceMs;
+  const endsAt = sessionEndsAt(active); // countdown: startedAt + plannedMs + pausedMs; stopwatch: startedAt + timerMaxMs + pausedMs
+  const failsAt = active.lastSeenAt + sessionGraceMs;
   if (active.strictness === 'strict' && failsAt < endsAt && now > failsAt) {
-    return { kind: 'failed', at: failsAt, reason: 'left' };
+    return { active, resolution: { kind: 'failed', at: failsAt, reason: 'left' } };
   }
   if (now >= endsAt) {
-    return { kind: 'completed', at: endsAt };
+    return { active, resolution: { kind: 'completed', at: endsAt } };
   }
-  return { kind: 'running' };
+  return { active, resolution: { kind: 'running' } };
 }
 ```
 
-`sessionPauseExpire` is the pure auto-resume described above: if `pausedAt + pauseMaxMs <= now`, it returns the session resumed at that instant.
+`sessionPauseExpire` is the pure auto-resume described above: if `pausedAt + pauseMaxMs <= now`, it returns the session resumed at that instant, with `lastSeenAt = max(lastSeenAt, thatInstant)`. It returns the same object when nothing expired. `sessionElapsedMs(active, now)` (active time, excluding pauses, clamped at 0) and `sessionRemainingMs(active, now)` (what a countdown displays; frozen while paused) are exported so the countdown, the title, and tree growth never re-derive the formula. `sessionEndsAt(active)` is the wall-clock end if no pause starts; it ignores an open pause, so it is not for display. The constants (`sessionGraceMs`, `sessionPauseMaxMs`, `timerMaxMs`) are imported from config directly: there is one value of each, so an injected rules object would add nothing.
 
 Why this shape:
 
 - One comparison covers every way of leaving: tab switch, screen lock, browser kill, tab discard, crash, sleep. In all of them `lastSeenAt` stops advancing, and the gap shows at the next resolve.
 - Leaving within the grace period of the planned end completes the session (`failsAt >= endsAt`).
 - The grace period is many times the tick interval. A main thread blocked longer than the grace period would fail a session; accepted.
-- A wall-clock jump forward of more than the grace period while visible (NTP correction, the user editing the system time) would fail a strict session falsely. Accepted and documented. A jump backward leaves `lastSeenAt` in the future; elapsed time clamps at zero.
+- A wall-clock jump forward of more than the grace period while visible (NTP correction, the user editing the system time) would fail a strict session falsely. Accepted and documented. A jump backward leaves `lastSeenAt` in the future until the next seen touch, which sets it to `now` (not `max`) so the correction takes effect at once; elapsed time clamps at zero. A forward jump over the grace period while a pause is open expires the pause early and fails a present strict user, which is the same accepted risk.
 
 **The ordering rule that makes this correct.** Updating `lastSeenAt` before resolving erases the gap it is meant to reveal (a laptop wakes, a heartbeat fires first, and an hour of sleep vanishes). So there is exactly one action that touches the clock, and it always resolves first:
 
@@ -179,6 +180,12 @@ type ActionSessionTouch = { kind: 'sessionTouch'; now: number; seen: boolean };
 A page that loads hidden (session restore, background tab) resolves but does not touch.
 
 Every other session action (`sessionStart`, `sessionGiveUp`, `sessionPause`, `sessionResume`, `sessionStop`) also runs `sessionResolve(now)` first. A Give Up pressed 500 ms after the planned end records a completion, not a give-up; one pressed on a restored stale page records `left`.
+
+**Reducer result and rejections.** `sessionReduce(state, action)` returns `{ state, finished, rejection }`. `finished` is the session that finished during the call, whether the clock settled it or the action did, so the UI plays the chime and shows the result without diffing states. `rejection` is one of `session-already-active`, `no-active-session`, `already-paused`, `pause-used`, `not-paused`, `unknown-tag`: races a user causes by acting on a stale screen. Programming mistakes throw a plain `Error` (Stop on a countdown, a countdown outside the timer range, which the UI clamps). When the clock had already finished the session, the action is moot: the result carries `finished` and no rejection, and the UI shows the result screen. A rejection therefore always means "nothing happened". Handling in the UI: a race code is logged to the console and ignored; `unknown-tag` raises a status warning and clears the tag picker. A finished record's `endedAt` is never later than the real `now` (a clock set back shrinks `pausedMs` so active time stays non-negative instead of moving `endedAt` into the future). Species ownership is checked when coins arrive (step 7).
+
+**Accepted risks.** A relaxed stopwatch abandoned for days still records a 3-hour completion; the cap only bounds it. A clock set back during a pause stretches the real pause past `sessionPauseMaxMs`. A session started while the clock is far ahead keeps running until given up, and its record carries the clock's date.
+
+**Requirement on the store.** While `guard.corrupt.sessions` is set, the store must stop dispatching session actions and show a blocking status: a clock-driven finish would otherwise make `storageSave` throw on every tick.
 
 There is one 1 s interval, not a separate heartbeat. Writing about 200 bytes a second is nothing.
 
@@ -320,9 +327,9 @@ src/
   App.tsx
   lib/                          pure: no DOM, no Date.now(), no randomness, no storage
     types.ts                    data model
-    config.ts                   named constants, category first (timerDefaultMs so far; each later step adds the ones it uses)
+    config.ts                   named constants, category first: timerMinMs, timerMaxMs, timerDefaultMs, sessionGraceMs, sessionPauseMaxMs so far; each later step adds the ones it uses
     session-reduce.ts           reducer; every session action resolves first
-    session-resolve.ts          section 5.2
+    session-resolve.ts          section 5.2: sessionResolve, sessionPauseExpire, sessionEndsAt, sessionElapsedMs, SessionRules
     coins-balance.ts
     species-catalog.ts          data
     growth-stage.ts
@@ -396,7 +403,7 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | Tab ownership reducer rules | Duplicate ids in `sessions` are deduplicated on read. (The lock itself is covered by manual smoke.) |
 | `coinsBalance` and purchases | Failed sessions earn nothing; balance matches purchases; re-pricing does not change history; double purchase and insufficient balance are rejected. |
 | `growthStage` | Monotonic; endpoints; clamps out-of-range input; stopwatch progress caps at fully grown. |
-| Pause and stopwatch | Pause freezes the clock and ignores absence; resume extends `endsAt` by the pause length; a second pause is rejected; a pause past `pauseMaxMs` auto-resumes and then fails a strict session whose user stayed away; a stopwatch never completes by time, completes on stop, and still fails on absence; stopwatch coins use elapsed active time. |
+| Pause and stopwatch | Pause freezes the clock and ignores absence; resume extends `endsAt` by the pause length; a second pause is rejected; a pause past `sessionPauseMaxMs` auto-resumes and then fails a strict session whose user stayed away; a stopwatch completes on stop or at `timerMaxMs` of active time, and still fails on absence; stopwatch coins use elapsed active time. |
 | `statsBucket`, `statsStreak` | Both DST transitions in `America/Denver`; 23:30 and 00:30 local sessions; week start; empty input; a streak with no session yet today still counts through yesterday. A guard test fails if `TZ` stops being pinned. |
 | `storageCoerce` | Valid, missing fields, wrong types, hand-edited garbage; one bad record rejects only that record; each failure yields a specific error. |
 | Backup | Round-trip; invalid files rejected with a specific error; import never partially applies; `lastAcknowledgedId` survives a reload. |
