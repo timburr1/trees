@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+/* Semantic tokens: redefining the variables under the media query re-themes the app without `dark:` variants. */
+@theme {
+  --color-surface: #eef1f6;
+  --color-raised: #ffffff;
+  --color-ink: #141a26;
+  --color-muted: #5c6575;
+  --color-line: #d3d9e4;
+  --color-accent: #2f5fe0;
+  --color-accent-ink: #ffffff;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: #0f172a;
+    --color-raised: #1b2436;
+    --color-ink: #e9edf5;
+    --color-muted: #96a1b5;
+    --color-line: #2c3650;
+    --color-accent: #6b93ff;
+    --color-accent-ink: #0b1120;
+  }
+}
+
+html {
+  /* Keeps content clear of the notch and home indicator when installed to the home screen. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background-color: var(--color-surface);
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
