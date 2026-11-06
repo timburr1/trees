@@ -233,11 +233,11 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 
 **Size.** A finished session is about 200 bytes. At ten a day that is under 1 MB per year against a roughly 5 MB quota. If it ever binds, move `sessions` to IndexedDB; only the storage module changes.
 
-**Validation.** Everything read goes through `coerce*` functions at the boundary and downstream code trusts the types. Validation is **per record**: one bad session is rejected and counted, and the rest load. The count is reported in the status area, not hidden.
+**Validation.** Everything read goes through `coerce*` functions at the boundary and downstream code trusts the types. Validation is **per record**: one bad session is rejected and counted, and the rest load. The count is reported in the status area, not hidden. Rejected records are **kept**: the loader hands them to every later save, which appends them unchanged to their slice, so a validator tightened in a later release never deletes data. Settings are validated for type only; the UI clamps values to the current timer range, so a release that narrows the range cannot lock a user out of their own settings.
 
 **Errors have a channel.** The app state carries a `status` list rendered by `StatusBanner`, and every entry is also logged to the console. Error classes, category first: `ErrorStorageCorrupt`, `ErrorStorageQuota` (a `setItem` that throws `QuotaExceededError`), `ErrorImportInvalid`. Wake Lock failures (`NotAllowedError` when hidden or on battery saver) and `AudioContext` failures surface as warnings through the same channel, with a hint.
 
-**Corrupt data stays put.** If a key cannot be parsed at all (not a bad record, but unreadable), the app marks that slice corrupt in state, **skips saving that key** while it is corrupt, disables the actions that need it, and offers to export the raw string. Without this, the first save would overwrite the evidence. A corrupt `active` alone drops the session with a visible warning and does not block the app.
+**Corrupt data stays put.** If a key cannot be parsed at all (not a bad record, but unreadable), the app marks that slice corrupt in state, **skips saving that key** while it is corrupt, disables the actions that need it, and offers to export the raw string. Without this, the first save would overwrite the evidence. A corrupt `active` alone drops the session with a visible warning and does not block the app. Saving refuses to remove the active session while `sessions` is corrupt, because the finished record could not be written; the caller must block finishing a session in that state. If a save throws partway (for example on quota), the caller keeps its previous baseline and retries; rewriting a slice is idempotent. When hydration drops an `active` whose id is already in `sessions`, it also removes that key from disk, so the orphan cannot return as a second record.
 
 **Hydration.** Persistence is gated on a `hydrated` flag so the first render cannot write empty state over stored data. Hydration drops an `active` whose id is already in `sessions`.
 
@@ -320,7 +320,7 @@ src/
   App.tsx
   lib/                          pure: no DOM, no Date.now(), no randomness, no storage
     types.ts                    data model
-    config.ts                   named constants, category first: timerMinMs, timerMaxMs, timerStepMs, coinsPeriodMs, sessionGraceMs, sessionTickMs, pauseMaxMs, stopwatchFullMs
+    config.ts                   named constants, category first (timerDefaultMs so far; each later step adds the ones it uses)
     session-reduce.ts           reducer; every session action resolves first
     session-resolve.ts          section 5.2
     coins-balance.ts
@@ -329,9 +329,11 @@ src/
     stats-bucket.ts
     stats-tag.ts
     stats-streak.ts
-    time-local.ts               local date-part helpers
+    time-local.ts               local date-part helpers (added with the stats in step 8)
     storage-coerce.ts           validators; the trust boundary
-    storage-save.ts             persist(prev, next, storage), ordered per-slice writes
+    storage-slices.ts           slice names and write order, storage keys, StorageLike, StorageGuard
+    storage-load.ts             storageLoad(storage): data, problems, guard; hydration rules
+    storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes
     backup-export.ts
     backup-import.ts
     errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorImportInvalid
@@ -407,7 +409,7 @@ Not unit-tested, and reported as such: SVG rendering, layout, Web Locks, Wake Lo
 Each step is one commit (or a short series) that builds and passes the suite on its own.
 
 1. Scaffold: Vite, TypeScript, React, Tailwind, ESLint, formatter, Vitest; CI workflow; an empty app that deploys.
-2. Types, errors, `time-local`, `storage-coerce`, `storage-save`, and tests.
+2. Types, errors, `storage-coerce`, `storage-load`, `storage-save`, and tests. (`time-local` moves to step 8 with its first user.)
 3. `session-resolve` and `session-reduce`, tests first.
 4. Store, `AppProvider`, owner lock, Focus screen, `useSessionRunner`, with a placeholder tree.
 5. Species catalog, growth stages, `TreeSprite`.
