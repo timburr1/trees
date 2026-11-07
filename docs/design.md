@@ -421,7 +421,7 @@ public/
   favicon.svg
   icons/                        192, 512, maskable
   staticwebapp.config.json
-.github/workflows/azure-static-web-apps.yml
+.github/workflows/azure-static-web-apps-white-ocean-0e5fe2410.yml
 docs/design.md
 ```
 
@@ -431,6 +431,7 @@ Dependencies point one way: `components → hooks → lib`, and `hooks → platf
 
 Azure Static Web Apps, Free plan, deployed from GitHub Actions on every push to `main`, with preview environments for PRs. The free plan limits how many preview environments can exist at once (I believe three; check), so close PRs promptly. There is no `api/` directory in the prototype.
 
+- The workflow file name must stay `azure-static-web-apps-<adjective>-<noun>-<hex>.yml` as Azure generated it: with OIDC, Azure finds the app from that name, and a rename fails the deploy with "Could not determine the Static Web App".
 - The workflow runs `npm ci`, lint, test, build, then uploads `dist/`. It mirrors mello's workflow minus the Functions build.
 - `public/staticwebapp.config.json` is copied to `dist/` by Vite. It sets `navigationFallback` to `/index.html`, and its `exclude` list must cover `/manifest.webmanifest`, `/icons/*`, `/favicon.svg`, `/sw.js`, and `/workbox-*.js` (mello's CLAUDE.md warns about exactly this); `src/platform/swa-config.test.ts` fails when a root-level file in `public/` is missing from it. Whether SWA honors `*` in the middle of a file name is not documented, so the deployed site is the check. The `Content-Security-Policy` is `default-src 'self'` with the service worker registered through the virtual module, not inline; `worker-src` and `manifest-src` fall back to `default-src`, and `img-src` needs no exception while no image uses `data:` or `blob:` URLs. It sets `X-Content-Type-Options` and `Referrer-Policy`. No auth section.
 - The service worker caches the app shell only (section 4).

@@ -19,7 +19,7 @@ npm test               # vitest run, TZ pinned to America/Denver
 npm run test:watch
 ```
 
-CI (`.github/workflows/azure-static-web-apps.yml`) runs format:check, lint, test, and build before deploying `dist/`. `public/staticwebapp.config.json` is copied into `dist/` and holds the CSP and the navigation fallback; add new root-level files in `public/` to its `exclude` list.
+CI (`.github/workflows/azure-static-web-apps-white-ocean-0e5fe2410.yml`) runs format:check, lint, test, and build before deploying `dist/`. `public/staticwebapp.config.json` is copied into `dist/` and holds the CSP and the navigation fallback; add new root-level files in `public/` to its `exclude` list.
 
 ## Working agreements
 
