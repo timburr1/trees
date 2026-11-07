@@ -5,5 +5,8 @@ export const timerMaxMs = 180 * MINUTE_MS;
 export const timerStepMs = 5 * MINUTE_MS;
 export const timerDefaultMs = 25 * MINUTE_MS;
 
+/** A stopwatch has no planned length, so its tree grows from seed to full over this span. Tune by feel. */
+export const growthStopwatchMs = 60 * MINUTE_MS;
+
 export const sessionGraceMs = 15_000;
 export const sessionPauseMaxMs = 5 * MINUTE_MS;

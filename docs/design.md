@@ -287,17 +287,28 @@ type Species = {
   readonly cost: number;
   readonly shape: 'round' | 'cone' | 'tiered';
   readonly trunkColor: string;
-  readonly leafColors: readonly string[];      // one per growth stage
+  readonly leafColors: Readonly<Record<'sprout' | 'sapling' | 'young' | 'full', string>>;   // the seed is a mound and has no leaves
 };
 ```
 
-A catalog test enforces unique ids, nonnegative costs, exactly one free species, and `leafColors.length === STAGE_COUNT`. The prototype ships about five species. No flavor text is written.
+A catalog test enforces unique kebab-case ids, nonnegative integer costs, exactly one free species, and valid hex for the trunk and every leaf stage. The prototype ships five species (Oak free, Pine, Birch, Spruce, Maple), with plain tree names and no flavor text. Species colors are hex data. Every trunk, leaf, and the seed's soil keeps at least 2:1 contrast against both page backgrounds (a luminance window of roughly 0.085 to 0.36), and every trunk keeps at least 1.5:1 against the ground patch, which uses a theme token (`--color-ground`) defined for light and dark. A test reads the real tokens from `index.css` and enforces all of this, so a palette or theme change that breaks it fails the suite. `speciesStarter` is the one free species, and the Focus screen plants it until the shop exists (step 7).
 
-**Catalog entries are never deleted.** Old sessions and purchases reference ids forever, and that is a written rule, since no test can enforce it across versions. An unknown id still renders as a generic tree and raises a status warning, so a mistake degrades instead of crashing.
+**Catalog entries are never deleted.** Old sessions and purchases reference ids forever, and that is a written rule, since no test can enforce it across versions. An unknown id renders as `speciesFallback`, a generic tree kept outside the catalog (so the catalog invariants hold) and never persisted. The store counts unknown ids at load and shows one non-blocking `species-unknown` warning with the count, so a mistake or newer-version data degrades instead of crashing. In a release this fires only for a bug or data from a newer version.
+
+SVGs use flat fills only, with no `id`s or gradients: many trees share one page, and ids share one namespace.
 
 ### 8.2 Growth
 
-`growthStage(progress, STAGE_COUNT)` maps elapsed fraction in [0, 1] to a stage: seed, sprout, sapling, young tree, full tree. The renderer applies a short CSS transition. A dead tree is the same shape withered: bare trunk, desaturated canopy.
+`growthStage(progress)` maps progress to one of five stages: seed, sprout, sapling, and young take a quarter each, and full is reserved for progress of 1, so finishing a session is visible in the picture. The stages are a closed union, not a count: the geometry draws exactly those five looks. Out-of-range progress clamps (a stopwatch runs past its span); NaN throws.
+
+- **Progress.** A countdown grows over its planned time. A stopwatch has no planned length, so it grows over `growthStopwatchMs` (60 minutes, tune by feel). `sessionProgress` computes both.
+- **Finished trees show what was reached** (`growthFinished`): a completed countdown is full grown; a failed session shows the stage it reached, dead; a completed stopwatch shows the stage it reached. The forest (step 6) calls the same function.
+- **Dead.** A dead tree is drawn at least as a sapling (`treeStageDrawn`, which the label shares), with a canopy 60% the live size and its species colors pulled toward gray, so it stays visible at forest-tile size and a forest of failures still shows which species died.
+- **Animation.** The geometry is discrete, so it cannot transition. The running tree is wrapped in an element keyed on the stage, which replays a short grow-in (removed under reduced motion). The sprite itself is static so forest tiles and shop cards do not replay it.
+- **Accepted cost.** The picture changes about every 6 minutes for a 25-minute countdown, every 15 minutes for a stopwatch, and every 45 for a 3-hour countdown, and there is no progress bar. Countdowns have the clock; a stopwatch loses "how grown".
+- **Accessibility.** `treeLabel` names a tree ("Oak, sapling", "Dead oak, young tree"). `TreeSprite` can be decorative, for places that carry their own label.
+
+A stopwatch can be stopped at 0:03 and counts as completed, so its result shows a seed. That is a session-rules gap the tree makes visible (open question 5).
 
 ### 8.3 Forest view
 
@@ -329,7 +340,7 @@ Five screens in a bottom tab bar (mobile) or side rail (desktop). Tab state is i
 
 A `StatusBanner` shows storage and platform warnings (section 6). Component names are category first: `ForestGrid`, `ForestTile`, `StatsBars`, `StatsSummary`, `TreeSprite`, `TimerDial`, `TimerCountdown`, `ShopCard`.
 
-Dark and light via `prefers-color-scheme`. Keyboard operable, visible focus, enough contrast. The countdown is not announced every second to screen readers; announce start, halfway, and finish. The UI states what "leaving" means (including fully covered windows on desktop, section 3).
+Dark and light via `prefers-color-scheme`. Keyboard operable, visible focus, enough contrast. The countdown is not announced every second to screen readers; announce start, halfway (countdowns only; a stopwatch has no end to be halfway to), and finish. The UI states what "leaving" means (including fully covered windows on desktop, section 3).
 
 ## 11. Module map
 
@@ -347,8 +358,11 @@ src/
     session-reduce.ts           reducer; every session action resolves first
     session-resolve.ts          section 5.2: sessionResolve, sessionPauseExpire, sessionEndsAt, sessionElapsedMs, SessionRules
     coins-balance.ts
-    species-catalog.ts          data
-    growth-stage.ts
+    species-catalog.ts          species data, speciesResolve, speciesStarter, speciesFallback
+    growth-stage.ts             GrowthStage union, growthStage
+    session-growth.ts           sessionProgress, growthFinished, sessionFinishedActiveMs
+    tree-geometry.ts            treeGeometry: a tree as flat shapes in a fixed viewBox
+    tree-label.ts               accessible name of a tree
     stats-bucket.ts
     stats-tag.ts
     stats-streak.ts
@@ -425,7 +439,8 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | `statsBucket`, `statsStreak` | Both DST transitions in `America/Denver`; 23:30 and 00:30 local sessions; week start; empty input; a streak with no session yet today still counts through yesterday. A guard test fails if `TZ` stops being pinned. |
 | `storageCoerce` | Valid, missing fields, wrong types, hand-edited garbage; one bad record rejects only that record; each failure yields a specific error. |
 | Backup | Round-trip; invalid files rejected with a specific error; import never partially applies; `lastAcknowledgedId` survives a reload. |
-| Catalog | Unique ids, nonnegative costs, exactly one free species, `leafColors.length === STAGE_COUNT`. |
+| Catalog | Unique ids, nonnegative costs, exactly one free species, valid hex colors for every stage. |
+| Tree geometry | Every shape inside the viewBox, canopy overlapping and centered on the trunk, tiers stacked, sprout leaves on the stem, one ground line, a visible dead tree at every stage, palette contrast against the real theme tokens. |
 
 Not unit-tested, and reported as such: SVG rendering, layout, the real Web Locks, Wake Lock, and audio implementations, and the `useSessionRunner` wiring. The races around them (owner lock, wake-lock controller, app controller, store fence) are tested against fakes. The rest gets a written manual smoke checklist (`docs/smoke-checklist.md`) run on a real phone and a desktop: start; switch tabs under and over the grace period; cover the window fully; lock the phone; close the laptop lid and reopen; kill and reopen mid-session; open a second tab and use "Use here"; install the PWA; go offline; export on iOS standalone. A Playwright test using its fake clock for one end-to-end timer run is a reasonable follow-up.
 
@@ -473,3 +488,4 @@ Still open, each with the default the design assumes:
 2. **App and repo name.** Assumed "Trees".
 3. **Changelog.** Assumed none until the first deployed release.
 4. **Sounds.** Assumed one synthesized chime (Web Audio, no asset files) and nothing else.
+5. **Stopwatch minimum.** Stop currently completes a session at any length, so a 3-second stopwatch records a completed seed. Options: reject Stop under `timerMinMs`, count it as failed, or accept it. Assumed accept until decided.

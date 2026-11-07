@@ -49,6 +49,18 @@ The unit tests cover the logic and the races (against fakes). They cannot cover 
 - [ ] With a session running in tab A, background tab A, steal in tab B, then return to tab A. Tab A shows the other-tab screen, and tab A's stale state did not overwrite tab B's data (check the keys in DevTools).
 - [ ] Back/forward cache: navigate away and back (DevTools > Application > Back/forward cache > Test). The app recovers, either as owner or on the other-tab screen. If the page is not eligible for bfcache, note why.
 
+## Trees
+
+- [ ] Start a 25-minute countdown. The tree grows through five stages (seed, then a change about every 6 minutes, and the full tree only at the end), with a short grow-in each time, and "More than halfway" is announced once to a screen reader.
+- [ ] Start a stopwatch. The tree grows over an hour, and no "halfway" is announced.
+- [ ] Stop a stopwatch at a few seconds. The result shows a seed with "Tree grown" (a known gap, design open question 5).
+- [ ] Let a countdown finish: the result shows a full grown live tree. Give up halfway: a dead tree at the stage reached, never a speck.
+- [ ] Temporarily swap `speciesStarter` use in [FocusSetup.tsx](../src/components/FocusSetup.tsx) for each catalog species (`speciesCatalog[1]` to `[4]`) and check each at every stage, alive and dead. Look for canopies cut off at the edge, trunks floating above the ground, and a baseline that jumps between stages.
+- [ ] Same species at about 48 px (browser zoom, or a temporary small wrapper): alive and dead should both read clearly.
+- [ ] Light and dark mode: every species, including the pale Birch trunk and the dark Spruce, stays visible against the ground patch.
+- [ ] Reduced motion on: no grow-in animation.
+- [ ] Seed an old session with an unknown species id (for example `placeholder-tree`) in DevTools: a generic grey-green tree and exactly one "Species this version does not know" warning.
+
 ## Warnings and errors
 
 - [ ] Ten tab switches in a relaxed session produce no repeated or stacking warnings.

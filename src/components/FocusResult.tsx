@@ -1,5 +1,8 @@
+import { growthFinished, sessionFinishedActiveMs } from '../lib/session-growth.ts';
+import { speciesResolve } from '../lib/species-catalog.ts';
 import type { StoreApp } from '../lib/store-app.ts';
 import type { SessionFinished, SessionOutcome } from '../lib/types.ts';
+import { TreeSprite } from './TreeSprite.tsx';
 
 function outcomeLabel(outcome: SessionOutcome): string {
   switch (outcome.kind) {
@@ -13,10 +16,13 @@ function outcomeLabel(outcome: SessionOutcome): string {
 }
 
 export function FocusResult({ store, session }: { store: StoreApp; session: SessionFinished }) {
-  const activeMinutes = Math.round((session.endedAt - session.startedAt - session.pausedMs) / 60_000);
+  const tree = growthFinished(session);
+  const activeMinutes = Math.round(sessionFinishedActiveMs(session) / 60_000);
   return (
     <section className="space-y-4 text-center" role="status">
-      <p className="text-muted">[Placeholder: Tree]</p>
+      <div className="mx-auto h-48 w-40">
+        <TreeSprite species={speciesResolve(session.speciesId)} stage={tree.stage} dead={tree.dead} decorative={false} />
+      </div>
       <h1 className="text-xl font-semibold">{outcomeLabel(session.outcome)}</h1>
       <p>{activeMinutes} minutes of focus</p>
       <button type="button" className="rounded bg-accent px-5 py-2 text-accent-ink" onClick={() => store.uiAcknowledge(session.id)}>

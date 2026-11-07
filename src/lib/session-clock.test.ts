@@ -1,4 +1,4 @@
-import { chimeDue, sessionClockText } from './session-clock.ts';
+import { chimeDue, sessionClockText, sessionHalfway } from './session-clock.ts';
 import { sessionActiveMake, sessionFinishedMake } from '../test/fixtures.ts';
 
 const MIN = 60_000;
@@ -36,5 +36,19 @@ describe('chimeDue', () => {
   it('is not due for a failure or when nothing finished', () => {
     expect(chimeDue(sessionFinishedMake({ endedAt: t0, outcome: { kind: 'failed', reason: 'left' } }), t0)).toBe(false);
     expect(chimeDue(undefined, t0)).toBe(false);
+  });
+});
+
+describe('sessionHalfway', () => {
+  const countdown = sessionActiveMake({ startedAt: t0, mode: { kind: 'countdown', plannedMs: 20 * MIN } });
+
+  it('turns true at half of a countdown', () => {
+    expect(sessionHalfway(countdown, t0 + 10 * MIN - 1)).toBe(false);
+    expect(sessionHalfway(countdown, t0 + 10 * MIN)).toBe(true);
+  });
+
+  it('is never true for a stopwatch, which has no end to be halfway to', () => {
+    const stopwatch = sessionActiveMake({ startedAt: t0, mode: { kind: 'stopwatch' } });
+    expect(sessionHalfway(stopwatch, t0 + 600 * MIN)).toBe(false);
   });
 });

@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { timerMaxMs, timerMinMs, timerStepMs } from '../lib/config.ts';
 import { durationClamp } from '../lib/duration-clamp.ts';
+import { speciesStarter } from '../lib/species-catalog.ts';
 import type { AppState, StoreApp } from '../lib/store-app.ts';
 import { chimeUnlock } from '../platform/chime.ts';
 import { idAvailable, idNew } from '../platform/id.ts';
+import { TreeSprite } from './TreeSprite.tsx';
 
 const MINUTE_MS = 60_000;
-const speciesPlaceholder = 'placeholder-tree';
 
 export function FocusSetup({ store, state }: { store: StoreApp; state: AppState }) {
   const { settings } = state.data;
@@ -22,7 +23,7 @@ export function FocusSetup({ store, state }: { store: StoreApp; state: AppState 
       now: Date.now(),
       mode: mode === 'countdown' ? { kind: 'countdown', plannedMs: durationClamp(durationMs) } : { kind: 'stopwatch' },
       tagId: undefined,
-      speciesId: speciesPlaceholder,
+      speciesId: speciesStarter.id,
     });
     // After the dispatch: audio is optional and must never stop a session from starting.
     if (result) {
@@ -33,6 +34,9 @@ export function FocusSetup({ store, state }: { store: StoreApp; state: AppState 
   return (
     <section className="space-y-5">
       <h1 className="text-xl font-semibold">Focus</h1>
+      <div className="mx-auto h-40 w-32">
+        <TreeSprite species={speciesStarter} stage="full" dead={false} decorative />
+      </div>
       <div role="radiogroup" aria-label="Timer mode" className="flex gap-2">
         {(['countdown', 'stopwatch'] as const).map((option) => (
           <button

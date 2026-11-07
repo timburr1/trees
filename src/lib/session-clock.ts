@@ -10,6 +10,11 @@ export function sessionClockText(active: SessionActive, now: number): string {
   return active.mode.kind === 'countdown' ? clockFormatRemaining(sessionRemainingMs(active, now)) : clockFormatElapsed(sessionElapsedMs(active, now));
 }
 
+/** Whether a countdown is past its midpoint. A stopwatch has no end to be halfway to, so it never is. */
+export function sessionHalfway(active: SessionActive, now: number): boolean {
+  return active.mode.kind === 'countdown' && sessionElapsedMs(active, now) * 2 >= active.mode.plannedMs;
+}
+
 /** Whether a session that just finished should chime. `finished` is what a runner-dispatched touch returned. */
 export function chimeDue(finished: SessionFinished | undefined, now: number): boolean {
   return finished?.outcome.kind === 'completed' && now - finished.endedAt < CHIME_LIVE_MS;
