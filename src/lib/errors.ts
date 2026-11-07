@@ -21,3 +21,19 @@ export class ErrorPlatformUnsupported extends Error {
     this.name = 'ErrorPlatformUnsupported';
   }
 }
+
+/** A backup file the app cannot import. The message says why in terms the user can act on. */
+export class ErrorImportInvalid extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorImportInvalid';
+  }
+}
+
+/** A replace failed partway and putting the old data back failed too, so what is on disk is neither old nor new. */
+export class ErrorStorageRollback extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorStorageRollback';
+  }
+}

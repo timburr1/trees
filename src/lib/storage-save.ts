@@ -1,4 +1,4 @@
-import { ErrorStorageQuota } from './errors.ts';
+import { ErrorStorageQuota, ErrorStorageRollback } from './errors.ts';
 import { sliceNames, storageKey, type StorageGuard, type StorageLike } from './storage-slices.ts';
 import type { Persisted } from './types.ts';
 
@@ -28,6 +28,48 @@ export function storageSave(prev: Persisted, next: Persisted, storage: StorageLi
     const preserved = guard.rejected[slice];
     const payload: unknown = preserved && isList(value) ? [...value, ...preserved] : value;
     storageWrite(storage, storageKey(slice), JSON.stringify(payload));
+  }
+}
+
+/**
+ * Writes every slice from `next`, over unreadable text too: the caller has confirmed the replacement. Rejected records in `guard` are appended, as in `storageSave`.
+ *
+ * Never leaves a mix. If a write throws, every key is removed first (which frees space, so the restore cannot hit the quota) and then put back as it was,
+ * and the original error is rethrown. If the restore throws too, disk holds neither the old data nor the new, which is `ErrorStorageRollback`.
+ */
+export function storageReplace(next: Persisted, guard: StorageGuard, storage: StorageLike): void {
+  const keys = sliceNames.map((slice) => storageKey(slice));
+  const snapshot = keys.map((key) => ({ key, text: storage.getItem(key) }));
+  try {
+    for (const slice of sliceNames) {
+      const value = next[slice];
+      if (value === undefined) {
+        storage.removeItem(storageKey(slice));
+        continue;
+      }
+      const preserved = guard.rejected[slice];
+      const payload: unknown = preserved && isList(value) ? [...value, ...preserved] : value;
+      storageWrite(storage, storageKey(slice), JSON.stringify(payload));
+    }
+  } catch (error) {
+    try {
+      for (const key of keys) {
+        storage.removeItem(key);
+      }
+      for (const { key, text } of snapshot) {
+        if (text !== null) {
+          storage.setItem(key, text);
+        }
+      }
+    } catch (rollbackError) {
+      throw new ErrorStorageRollback(
+        `A replace failed and the old data could not be put back: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        {
+          cause: error,
+        },
+      );
+    }
+    throw error;
   }
 }
 

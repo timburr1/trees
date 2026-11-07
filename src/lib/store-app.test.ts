@@ -2,6 +2,7 @@ import { sessionGraceMs } from './config.ts';
 import type { SessionAction } from './session-reduce.ts';
 import { selectResultPending, storeAppMake, type StoreApp } from './store-app.ts';
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
+import type { StorageLoadResult } from './storage-load.ts';
 import { storageSave } from './storage-save.ts';
 import type { Persisted } from './types.ts';
 import { speciesCatalog } from './species-catalog.ts';
@@ -434,6 +435,133 @@ describe('storeAppMake: tags', () => {
     expect(create(store)).toBeUndefined();
     expect(fenced.count).toBe(1);
     expect(storage.log).toEqual([]);
+  });
+});
+
+describe('storeAppMake: dataReplace and uiExported', () => {
+  const loadedOf = (data: Persisted, problems: StorageLoadResult['problems'] = []): StorageLoadResult => ({ data, problems, guard: storageGuardEmpty });
+  const replacement = (overrides: Partial<Persisted> = {}) => loadedOf(persistedMake({ sessions: [sessionFinishedMake({ id: 'imported' })], ...overrides }));
+  const codes = (store: StoreApp) => store.getState().status.map((entry) => entry.code);
+
+  it('replaces every slice, persists them, and keeps no phantom result for the imported history', () => {
+    const { store, storage } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'old' })], ui: uiMake({ lastExportedAt: 123 }) }));
+    expect(store.dataReplace(replacement(), 'import')).toBe('replaced');
+    expect(store.getState().data.sessions.map((session) => session.id)).toEqual(['imported']);
+    expect(storage.getItem(storageKey('sessions'))).toContain('imported');
+    expect(selectResultPending(store.getState())).toBeUndefined();
+    expect(store.getState().data.ui.lastExportedAt).toBe(123);
+    expect(storage.getItem(storageKey('ui'))).toContain('imported');
+  });
+
+  it('is rejected, with nothing written, while a session runs', () => {
+    const { store, storage } = harnessMake(running());
+    expect(store.dataReplace(replacement(), 'reset')).toBe('session-running');
+    expect(storage.log).toEqual([]);
+    expect(store.getState().data.active).toBeDefined();
+  });
+
+  it('replaces an unreadable history even with a stored running session, which can never finish, and unblocks sessions', () => {
+    const { store, storage } = harnessMake(running(), { [storageKey('sessions')]: '{not json' });
+    expect(store.getState().sessionsBlocked).toBe(true);
+    expect(store.dataReplace(replacement(), 'reset')).toBe('replaced');
+    expect(store.getState().sessionsBlocked).toBe(false);
+    expect(store.getState().data.active).toBeUndefined();
+    expect(storage.data.has(storageKey('active'))).toBe(false);
+    expect(codes(store)).not.toContain('sessions-corrupt');
+  });
+
+  it('rebuilds the entries a load earns: old problems and counts go, new ones come', () => {
+    const odd = sessionFinishedMake({ id: 'odd', speciesId: 'no-such-species' });
+    const { store } = harnessMake(persistedMake({ sessions: [odd] }), { [storageKey('tags')]: JSON.stringify([{ id: 'bad' }]) });
+    expect(codes(store)).toContain('species-unknown');
+    expect(codes(store).some((code) => code.startsWith('load-problem-'))).toBe(true);
+    store.dataReplace(replacement(), 'reset');
+    expect(codes(store)).not.toContain('species-unknown');
+    expect(codes(store).some((code) => code.startsWith('load-problem-'))).toBe(false);
+    store.dataReplace(replacement({ sessions: [odd] }), 'import');
+    expect(codes(store)).toContain('species-unknown');
+  });
+
+  it('shows a condition again after replacement even if the user had dismissed it', () => {
+    const odd = sessionFinishedMake({ id: 'odd', speciesId: 'no-such-species' });
+    const { store } = harnessMake(persistedMake({ sessions: [odd] }));
+    const entry = store.getState().status.find((candidate) => candidate.code === 'species-unknown');
+    store.statusDismiss(entry?.id ?? -1);
+    expect(codes(store)).not.toContain('species-unknown');
+    store.dataReplace(replacement({ sessions: [odd] }), 'import');
+    expect(codes(store)).toContain('species-unknown');
+  });
+
+  it('keeps the old data in memory and on disk when a write fails, and says so', () => {
+    const { store, storage } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'old' })] }));
+    const before = store.getState().data;
+    let writes = 0;
+    storage.setItemFailWhen = () => (++writes === 3 ? quotaError() : undefined);
+    expect(store.dataReplace(replacement(), 'reset')).toBe('failed');
+    expect(store.getState().data).toBe(before);
+    expect(storage.getItem(storageKey('sessions'))).toContain('"old"');
+    expect(codes(store)).toContain('replace-failed');
+  });
+
+  it('goes dead with a blocking entry when the rollback fails too', () => {
+    const { store, storage } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'old' })] }));
+    storage.setItemFailWhen = () => quotaError();
+    expect(store.dataReplace(replacement(), 'reset')).toBe('failed');
+    expect(store.getState().status.some((entry) => entry.code === 'storage-inconsistent' && entry.blocking)).toBe(true);
+    storage.setItemFailWhen = undefined;
+    storage.log.length = 0;
+    store.settingsSet(settingsMake({ strictness: 'relaxed' }));
+    expect(storage.log).toEqual([]);
+  });
+
+  it('is ignored once another tab owns the data', () => {
+    const { store, storage, fenced } = harnessMake(persistedMake());
+    storage.data.set(ownerKey, 'tab-b');
+    expect(store.dataReplace(replacement(), 'reset')).toBeUndefined();
+    expect(fenced.count).toBe(1);
+    expect(storage.log).toEqual([]);
+  });
+
+  it('writes the records its guard holds as rejected, so they survive the replace', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    store.dataReplace({ ...replacement(), guard: { corrupt: {}, rejected: { sessions: [{ id: 'bad' }] } } }, 'import');
+    expect(JSON.parse(storage.getItem(storageKey('sessions')) ?? '[]')).toHaveLength(2);
+    expect(store.getState().guard.rejected.sessions).toHaveLength(1);
+  });
+
+  it('forgets the export time on a reset and keeps it on an import', () => {
+    const { store } = harnessMake(persistedMake({ ui: uiMake({ lastExportedAt: 123 }) }));
+    store.dataReplace(replacement(), 'import');
+    expect(store.getState().data.ui.lastExportedAt).toBe(123);
+    store.dataReplace(replacement(), 'reset');
+    expect(store.getState().data.ui.lastExportedAt).toBeUndefined();
+  });
+
+  it('does not forget the dismissal of an unrelated entry', () => {
+    const { store } = harnessMake(persistedMake());
+    store.statusSet({ code: 'sound', severity: 'warning', message: 'x', blocking: false });
+    store.statusDismiss(store.getState().status.find((entry) => entry.code === 'sound')?.id ?? -1);
+    store.dataReplace(replacement(), 'import');
+    store.statusSet({ code: 'sound', severity: 'warning', message: 'x', blocking: false });
+    expect(codes(store)).not.toContain('sound');
+  });
+
+  it('records the export time without touching the acknowledged result', () => {
+    const { store, storage } = harnessMake(persistedMake({ ui: uiMake({ lastAcknowledgedId: 'x' }) }));
+    store.uiExported(t0);
+    expect(store.getState().data.ui).toEqual({ lastAcknowledgedId: 'x', lastExportedAt: t0 });
+    expect(storage.getItem(storageKey('ui'))).toContain(String(t0));
+  });
+});
+
+describe('storeAppMake: unreadable settings', () => {
+  it('ignores a settings change, with nothing written, so it cannot look saved and vanish on reload', () => {
+    const { store, storage } = harnessMake(undefined, { [storageKey('settings')]: '{nope' });
+    const before = store.getState().data.settings;
+    store.settingsSet(settingsMake({ strictness: 'relaxed' }));
+    expect(store.getState().data.settings).toBe(before);
+    expect(storage.log).toEqual([]);
+    expect(storage.getItem(storageKey('settings'))).toBe('{nope');
   });
 });
 

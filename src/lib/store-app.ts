@@ -1,10 +1,10 @@
-import { ErrorStorageQuota } from './errors.ts';
+import { ErrorStorageQuota, ErrorStorageRollback } from './errors.ts';
 import { purchaseBuy, type PurchaseRequest, type PurchaseResult } from './purchase-buy.ts';
 import { sessionReduce, type SessionAction, type SessionReduceResult } from './session-reduce.ts';
 import { statusFromLoad } from './status-load.ts';
 import { tagArchive, tagCreate, type TagArchiveRequest, type TagCreateRequest, type TagResult } from './tag-edit.ts';
-import { storageLoad } from './storage-load.ts';
-import { storageSave } from './storage-save.ts';
+import { storageLoad, type StorageLoadResult } from './storage-load.ts';
+import { storageReplace, storageSave } from './storage-save.ts';
 import type { StorageGuard, StorageLike } from './storage-slices.ts';
 import type { Persisted, SessionFinished, Settings } from './types.ts';
 
@@ -52,7 +52,10 @@ export type StoreApp = {
   /** Returns undefined when the store ignored the request: see `selectTagsBlock`, or this tab lost ownership. */
   readonly tagCreate: (request: TagCreateRequest) => TagResult | undefined;
   readonly tagArchive: (request: TagArchiveRequest) => TagResult | undefined;
+  /** Replaces everything stored with `loaded`. Returns undefined when this tab lost ownership. An import keeps the export time and a reset forgets it. */
+  readonly dataReplace: (loaded: StorageLoadResult, kind: DataReplaceKind) => DataReplaceOutcome | undefined;
   readonly settingsSet: (settings: Settings) => void;
+  readonly uiExported: (now: number) => void;
   readonly uiAcknowledge: (sessionId: string) => void;
   readonly statusSet: (entry: StatusInput) => void;
   readonly statusClear: (code: string) => void;
@@ -60,6 +63,11 @@ export type StoreApp = {
   /** Fences now if another tab took the owner token, instead of waiting for the next write. Call it from a `storage` event on the owner key. */
   readonly ownerCheck: () => void;
 };
+
+/** `session-running` is the only reason to refuse. `failed` means nothing changed (or, after `storage-inconsistent` shows, that the store stopped and a reload is needed). */
+export type DataReplaceKind = 'import' | 'reset';
+
+export type DataReplaceOutcome = 'replaced' | 'session-running' | 'failed';
 
 /** The finished session the user has not yet seen a result for. Uses array order, because `endedAt` can go backward with the clock. */
 export function selectResultPending(state: AppState): SessionFinished | undefined {
@@ -122,7 +130,10 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
   }
 
   let status: readonly StatusEntry[] = [];
-  for (const input of statusFromLoad(loaded, log)) {
+  // Which entries came from a load, so replacing the data removes exactly those and nothing a later event added.
+  const loadInputs = statusFromLoad(loaded, log);
+  let loadCodes = loadInputs.map((input) => input.code);
+  for (const input of loadInputs) {
     status = statusWith(status, input);
   }
   const sessionsBlocked = loaded.guard.corrupt.sessions !== undefined;
@@ -179,6 +190,66 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     return true;
   }
 
+  function dataReplace(loaded: StorageLoadResult, kind: DataReplaceKind): DataReplaceOutcome | undefined {
+    if (!ownerHeld()) {
+      return undefined;
+    }
+    // A stored session beside an unreadable history can never finish, and replacing is the way out, so it does not count as running.
+    if (state.data.active !== undefined && !state.sessionsBlocked) {
+      return 'session-running';
+    }
+    // The imported history is not news: without this its last session would show up as a result waiting to be seen.
+    const next: Persisted = {
+      ...loaded.data,
+      active: undefined,
+      ui: { lastAcknowledgedId: loaded.data.sessions.at(-1)?.id, lastExportedAt: kind === 'import' ? state.data.ui.lastExportedAt : undefined },
+    };
+    try {
+      storageReplace(next, loaded.guard, storage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`replace failed: ${message}`);
+      if (error instanceof ErrorStorageRollback) {
+        dead = true;
+        stateSet({
+          ...state,
+          status: statusWith(state.status, {
+            code: 'storage-inconsistent',
+            severity: 'error',
+            message:
+              'Replacing your data failed and the old data could not be restored, so what is stored may be incomplete. This page still holds your previous data: export a backup from Settings now, then reload and import it.',
+            blocking: true,
+          }),
+        });
+        return 'failed';
+      }
+      stateSet({
+        ...state,
+        status: statusWith(state.status, {
+          code: 'replace-failed',
+          severity: 'error',
+          message: `Your data was not replaced and is unchanged: ${message}`,
+          blocking: false,
+        }),
+      });
+      return 'failed';
+    }
+    baseline = next;
+    for (const code of loadCodes) {
+      dismissed.delete(code);
+    }
+    let nextStatus: readonly StatusEntry[] = state.status.filter(
+      (entry) => !loadCodes.includes(entry.code) && !saveCodes.includes(entry.code) && entry.code !== 'replace-failed',
+    );
+    const replaced = statusFromLoad(loaded, log);
+    loadCodes = replaced.map((input) => input.code);
+    for (const input of replaced) {
+      nextStatus = statusWith(nextStatus, input);
+    }
+    stateSet({ data: next, guard: loaded.guard, status: nextStatus, sessionsBlocked: loaded.guard.corrupt.sessions !== undefined });
+    return 'replaced';
+  }
+
   function sessionDispatch(action: SessionAction): SessionReduceResult | undefined {
     if (dead || state.sessionsBlocked) {
       return undefined;
@@ -233,8 +304,17 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     },
     tagCreate: (request) => tagCommit(tagCreate(state.data, request)),
     tagArchive: (request) => tagCommit(tagArchive(state.data, request)),
+    dataReplace,
+    // An unreadable slice is never written, so a change to it would look saved and vanish on reload.
     settingsSet: (settings) => {
-      commit({ ...state.data, settings });
+      if (state.guard.corrupt.settings === undefined) {
+        commit({ ...state.data, settings });
+      }
+    },
+    uiExported: (now) => {
+      if (state.guard.corrupt.ui === undefined) {
+        commit({ ...state.data, ui: { ...state.data.ui, lastExportedAt: now } });
+      }
     },
     uiAcknowledge: (sessionId) => {
       commit({ ...state.data, ui: { ...state.data.ui, lastAcknowledgedId: sessionId } });

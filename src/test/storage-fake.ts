@@ -6,6 +6,8 @@ export type StorageFake = StorageLike & {
   readonly data: Map<string, string>;
   /** Makes the next `setItem` throw this, then clears itself. */
   setItemFailNext: Error | undefined;
+  /** Asked before every `setItem`; a returned error is thrown instead of writing. For failures that depend on the key or the call count. */
+  setItemFailWhen: ((key: string) => Error | undefined) | undefined;
 };
 
 export function storageFakeMake(initial: Record<string, string> = {}): StorageFake {
@@ -14,8 +16,13 @@ export function storageFakeMake(initial: Record<string, string> = {}): StorageFa
     log: [],
     data,
     setItemFailNext: undefined,
+    setItemFailWhen: undefined,
     getItem: (key) => data.get(key) ?? null,
     setItem: (key, value) => {
+      const failure = fake.setItemFailWhen?.(key);
+      if (failure) {
+        throw failure;
+      }
       if (fake.setItemFailNext) {
         const error = fake.setItemFailNext;
         fake.setItemFailNext = undefined;

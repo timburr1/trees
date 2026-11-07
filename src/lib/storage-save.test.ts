@@ -1,7 +1,7 @@
-import { ErrorStorageQuota } from './errors.ts';
+import { ErrorStorageQuota, ErrorStorageRollback } from './errors.ts';
 import { settingsDefault, storageLoad } from './storage-load.ts';
-import { storageSave } from './storage-save.ts';
-import { storageGuardEmpty, storageKey, type StorageGuard } from './storage-slices.ts';
+import { storageReplace, storageSave } from './storage-save.ts';
+import { sliceNames, storageGuardEmpty, storageKey, type StorageGuard } from './storage-slices.ts';
 import type { Persisted } from './types.ts';
 import { purchaseMake, sessionActiveMake, sessionFinishedMake, settingsMake, tagMake } from '../test/fixtures.ts';
 import { storageFakeMake } from '../test/storage-fake.ts';
@@ -119,5 +119,88 @@ describe('storageSave', () => {
     const loaded = storageLoad(storage);
     expect(loaded.data).toEqual(next);
     expect(loaded.problems).toEqual([]);
+  });
+});
+
+describe('storageReplace', () => {
+  const next: Persisted = {
+    ...empty,
+    sessions: [sessionFinishedMake({ id: 'new' })],
+    tags: [tagMake({ id: 'tag-new' })],
+    purchases: [purchaseMake({ id: 'p-new' })],
+  };
+  const quota = () => new DOMException('full', 'QuotaExceededError');
+  const keys = sliceNames.map((slice) => storageKey(slice));
+
+  function seededStorage() {
+    const storage = storageFakeMake();
+    const old: Persisted = {
+      ...empty,
+      sessions: [sessionFinishedMake({ id: 'old' })],
+      tags: [tagMake({ id: 'tag-old' })],
+      active: sessionActiveMake({ id: 'running' }),
+    };
+    storageSave(empty, old, storage, storageGuardEmpty);
+    storage.log.length = 0;
+    return { storage, before: new Map(storage.data) };
+  }
+
+  it('writes every slice, even an unchanged one, and removes the active session', () => {
+    const { storage } = seededStorage();
+    storageReplace(next, storageGuardEmpty, storage);
+    expect(storage.log.filter((entry) => entry.startsWith('set:')).length).toBe(5);
+    expect(storage.data.has(storageKey('active'))).toBe(false);
+    expect(storageLoad(storage).data.sessions.map((session) => session.id)).toEqual(['new']);
+  });
+
+  it('overwrites an unreadable slice, which a save never does', () => {
+    const storage = storageFakeMake({ [storageKey('sessions')]: '{not json' });
+    storageReplace(next, storageGuardEmpty, storage);
+    expect(storageLoad(storage).data.sessions).toHaveLength(1);
+  });
+
+  it('appends the records the guard holds as rejected', () => {
+    const storage = storageFakeMake();
+    storageReplace(next, { corrupt: {}, rejected: { sessions: [{ id: 'bad' }] } }, storage);
+    expect(JSON.parse(storage.getItem(storageKey('sessions')) ?? '[]')).toHaveLength(2);
+  });
+
+  it('puts back every key as it was when a write fails partway, removing first so the restore cannot hit the quota', () => {
+    const { storage, before } = seededStorage();
+    let writes = 0;
+    storage.setItemFailWhen = () => {
+      writes += 1;
+      return writes === 3 ? quota() : undefined;
+    };
+    expect(() => storageReplace(next, storageGuardEmpty, storage)).toThrow(ErrorStorageQuota);
+    expect(storage.data).toEqual(before);
+    // Two writes landed, then the rollback: every touched key removed before any key is set again.
+    const rollback = storage.log.slice(2);
+    expect(rollback.slice(0, keys.length)).toEqual(keys.map((key) => `remove:${key}`));
+    expect(rollback.slice(keys.length).every((entry) => entry.startsWith('set:'))).toBe(true);
+  });
+
+  it('leaves a key absent that was absent before when a write fails', () => {
+    const storage = storageFakeMake();
+    let writes = 0;
+    storage.setItemFailWhen = () => {
+      writes += 1;
+      return writes === 2 ? quota() : undefined;
+    };
+    expect(() => storageReplace(next, storageGuardEmpty, storage)).toThrow(ErrorStorageQuota);
+    expect(storage.data.size).toBe(0);
+  });
+
+  it('throws ErrorStorageRollback, with the first failure as the cause, when the restore also fails', () => {
+    const { storage } = seededStorage();
+    storage.setItemFailWhen = () => quota();
+    let caught: unknown;
+    try {
+      storageReplace(next, storageGuardEmpty, storage);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ErrorStorageRollback);
+    expect(caught instanceof Error ? caught.cause : undefined).toBeInstanceOf(ErrorStorageQuota);
   });
 });
