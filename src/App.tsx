@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FocusScreen } from './components/FocusScreen.tsx';
 import type { FocusSetupChoice } from './components/FocusSetup.tsx';
 import { ForestScreen } from './components/ForestScreen.tsx';
+import { ShopScreen } from './components/ShopScreen.tsx';
 import { NavBar, type FocusIndicator, type Screen } from './components/NavBar.tsx';
 import { OwnerBlocked } from './components/OwnerBlocked.tsx';
 import { SessionsBlocked } from './components/SessionsBlocked.tsx';
@@ -11,6 +12,7 @@ import { useApp } from './hooks/useApp.ts';
 import { useSessionRunner } from './hooks/useSessionRunner.ts';
 import { useStore } from './hooks/useStore.ts';
 import { durationClamp } from './lib/duration-clamp.ts';
+import { speciesStarter } from './lib/species-catalog.ts';
 import { selectResultPending, type StoreApp } from './lib/store-app.ts';
 import type { AppController } from './platform/app-controller.ts';
 
@@ -30,6 +32,8 @@ function ScreenView({
       return <FocusScreen store={store} choice={choice} onChoiceChange={onChoiceChange} />;
     case 'forest':
       return <ForestScreen store={store} />;
+    case 'shop':
+      return <ShopScreen store={store} />;
     default:
       throw new Error(`Unhandled screen: ${String(screen satisfies never)}`);
   }
@@ -45,6 +49,7 @@ function AppReady({ store }: { store: StoreApp }) {
   const [screen, setScreen] = useState<Screen>('focus');
   const [choice, setChoice] = useState<FocusSetupChoice>(() => ({
     mode: 'countdown',
+    speciesId: speciesStarter.id,
     durationMs: durationClamp(store.getState().data.settings.defaultDurationMs),
   }));
   useSessionRunner(store);

@@ -181,7 +181,7 @@ A page that loads hidden (session restore, background tab) resolves but does not
 
 Every other session action (`sessionStart`, `sessionGiveUp`, `sessionPause`, `sessionResume`, `sessionStop`) also runs `sessionResolve(now)` first. A Give Up pressed 500 ms after the planned end records a completion, not a give-up; one pressed on a restored stale page records `left`.
 
-**Reducer result and rejections.** `sessionReduce(state, action)` returns `{ state, finished, rejection }`. `finished` is the session that finished during the call, whether the clock settled it or the action did, so the UI plays the chime and shows the result without diffing states. `rejection` is one of `session-already-active`, `no-active-session`, `already-paused`, `pause-used`, `not-paused`, `unknown-tag`: races a user causes by acting on a stale screen. Programming mistakes throw a plain `Error` (Stop on a countdown, a countdown outside the timer range, which the UI clamps). When the clock had already finished the session, the action is moot: the result carries `finished` and no rejection, and the UI shows the result screen. A rejection therefore always means "nothing happened". Handling in the UI: a race code is logged to the console and ignored; `unknown-tag` raises a status warning and clears the tag picker. A finished record's `endedAt` is never later than the real `now` (a clock set back shrinks `pausedMs` so active time stays non-negative instead of moving `endedAt` into the future). Species ownership is checked when coins arrive (step 7).
+**Reducer result and rejections.** `sessionReduce(state, action)` returns `{ state, finished, rejection }`. `finished` is the session that finished during the call, whether the clock settled it or the action did, so the UI plays the chime and shows the result without diffing states. `rejection` is one of `session-already-active`, `no-active-session`, `already-paused`, `pause-used`, `not-paused`, `unknown-tag`, `species-not-owned`: races a user causes by acting on a stale screen. Programming mistakes throw a plain `Error` (Stop on a countdown, a countdown outside the timer range, which the UI clamps). When the clock had already finished the session, the action is moot: the result carries `finished` and no rejection, and the UI shows the result screen. A rejection therefore always means "nothing happened". Handling in the UI: a race code is logged to the console and ignored; `unknown-tag` raises a status warning and clears the tag picker. A finished record's `endedAt` is never later than the real `now` (a clock set back shrinks `pausedMs` so active time stays non-negative instead of moving `endedAt` into the future). `sessionStart` also checks that the species is owned (`species-not-owned`; an id the catalog lacks is never owned), after the running-session and tag checks.
 
 **Accepted risks.** A relaxed stopwatch abandoned for days still records a 3-hour completion; the cap only bounds it. A clock set back during a pause stretches the real pause past `sessionPauseMaxMs`. A session started while the clock is far ahead keeps running until given up, and its record carries the clock's date.
 
@@ -245,7 +245,7 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 | `trees:v1:active` | `SessionActive` or absent | each tick while visible |
 | `trees:v1:sessions` | `SessionFinished[]` | on session end |
 | `trees:v1:tags` | `Tag[]` | on tag create or archive |
-| `trees:v1:purchases` | `Purchase[]` | on purchase |
+| `trees:v1:purchases` | `Purchase[]` (`id`, `speciesId`, `at`, whole-number `cost`; deduplicated by `id` on load) | on purchase |
 | `trees:v1:settings` | `Settings` | on settings edit |
 | `trees:v1:ui` | `{ lastAcknowledgedId, lastExportedAt }` | on dismiss or export |
 
@@ -268,9 +268,11 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 Balance is **derived**: `coinsBalance = sum(earned over completed sessions) - sum(purchase costs)`. A stored balance can drift; a derived one cannot.
 
 - `coinsEarned(session)`: zero for failed sessions; for completed, `floor(activeMs / coinsPeriodMs)` with `coinsPeriodMs` of 5 minutes (tune by feel), where `activeMs` is the planned time for a countdown and `endedAt - startedAt - pausedMs` for a stopwatch.
-- A purchase is `{ speciesId, at, cost }`, append-only, with the cost recorded at purchase time so re-pricing never rewrites history.
-- The reducer **rejects** buying an already owned species and buying with insufficient balance, so a double tap cannot charge twice.
-- One species costs 0 and is owned from the start. "Owned" means "free or has a purchase". Planting an unowned species is rejected by the reducer as well as blocked in the UI.
+- A purchase is `{ id, speciesId, at, cost }`, append-only, with the cost recorded at purchase time so re-pricing never rewrites history. The `id` exists so phase 2 can merge (section 13), and `cost` must be a whole number so a balance is never fractional; both are validated per record at load.
+- `purchaseBuy` (pure, `purchase-buy.ts`) **rejects** an unknown species, buying an already owned one, and buying with insufficient balance, so a double tap cannot charge twice. The store's `purchaseBuy` does nothing, and the Shop says why, whenever the session history or the `purchases` slice is unreadable or has a rejected record (`selectPurchasesBlock`): a rejected Pine record is kept on disk but not counted, so Pine would look unowned and a second purchase could charge twice once a later release accepts the old record. A record whose id duplicates a different one is kept as rejected for the same reason; an identical duplicate is dropped with a problem entry. An unreadable `purchases` slice also raises a blocking `purchases-corrupt` status.
+- One species costs 0 and is owned from the start. "Owned" means "in the catalog, and free or has a purchase"; an id the catalog lacks is never owned. Planting an unowned species is rejected by `sessionReduce` (`species-not-owned`) as well as left out of the UI.
+- **The balance can be wrong in both directions on damaged data.** A rejected session record (kept on disk, not counted) removes coins whose purchases still count, so the balance can go negative; it is shown as is, never clamped. A rejected purchase record removes a cost, which is why buying is blocked in that state.
+- **Farming.** A forward clock completes a countdown early and pays its planned coins, and an abandoned relaxed stopwatch pays 36 coins at the 3-hour cap. Both fall under "no honest enforcement" (section 3).
 
 No streak bonus, daily mission, or decay. Those drive engagement, not focus.
 
@@ -291,7 +293,7 @@ type Species = {
 };
 ```
 
-A catalog test enforces unique kebab-case ids, nonnegative integer costs, exactly one free species, and valid hex for the trunk and every leaf stage. The prototype ships five species (Oak free, Pine, Birch, Spruce, Maple), with plain tree names and no flavor text. Species colors are hex data. Every trunk, leaf, and the seed's soil keeps at least 2:1 contrast against both page backgrounds (a luminance window of roughly 0.085 to 0.36), and every trunk keeps at least 1.5:1 against the ground patch, which uses a theme token (`--color-ground`) defined for light and dark. A test reads the real tokens from `index.css` and enforces all of this, so a palette or theme change that breaks it fails the suite. `speciesStarter` is the one free species, and the Focus screen plants it until the shop exists (step 7).
+A catalog test enforces unique kebab-case ids, nonnegative integer costs, exactly one free species, and valid hex for the trunk and every leaf stage. The prototype ships five species (Oak free, Pine, Birch, Spruce, Maple), with plain tree names and no flavor text. Species colors are hex data. Every trunk, leaf, and the seed's soil keeps at least 2:1 contrast against both page backgrounds (a luminance window of roughly 0.085 to 0.36), and every trunk keeps at least 1.5:1 against the ground patch, which uses a theme token (`--color-ground`) defined for light and dark. A test reads the real tokens from `index.css` and enforces all of this, so a palette or theme change that breaks it fails the suite. `speciesStarter` is the one free species and the default tree; the Focus screen offers every owned species (a picker appears once there is more than one).
 
 **Catalog entries are never deleted.** Old sessions and purchases reference ids forever, and that is a written rule, since no test can enforce it across versions. An unknown id renders as `speciesFallback`, a generic tree kept outside the catalog (so the catalog invariants hold) and never persisted. The store counts unknown ids at load and shows one non-blocking `species-unknown` warning with the count, so a mistake or newer-version data degrades instead of crashing. In a release this fires only for a bug or data from a newer version.
 
@@ -330,11 +332,11 @@ Only completed sessions count as focused time. "Today" is derived from an inject
 
 ## 10. UI
 
-Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Step 6 ships Focus and Forest. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
+Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6 and 7 ship Focus, Forest, and Shop. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
 
 | Screen | Contents |
 | --- | --- |
-| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Step 4 ships a subset: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, no tag or species picker, a placeholder tree, no coins. |
+| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Now shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, and coins earned on the result. Still missing: the tag picker (step 9). |
 | Forest | Section 8.3. |
 | Stats | Period switch, totals, per-tag breakdown, streaks. |
 | Shop | Species grid with cost and owned state, coin balance. |
@@ -359,7 +361,9 @@ src/
     duration-clamp.ts           durationClamp: every UI path to sessionStart goes through it
     session-reduce.ts           reducer; every session action resolves first
     session-resolve.ts          section 5.2: sessionResolve, sessionPauseExpire, sessionEndsAt, sessionElapsedMs, SessionRules
-    coins-balance.ts
+    coins.ts                    coinsEarned, coinsBalance (derived)
+    purchase-buy.ts             purchaseBuy, PurchaseRejection
+    species-owned.ts            speciesOwned
     species-catalog.ts          species data, speciesResolve, speciesStarter, speciesFallback
     growth-stage.ts             GrowthStage union, growthStage
     session-growth.ts           sessionProgress, growthFinished, sessionFinishedActiveMs
@@ -415,6 +419,7 @@ Goal: the same forest on phone and laptop, built after the local prototype works
 What the data model already gives:
 
 - Finished sessions, purchases, and tag creations are **append-only and immutable**. Merging two devices is a union by `id`, with no last-write-wins and no tombstones for those collections.
+- **Purchases need one more rule.** Two devices that each buy Pine create two different ids, and a plain union would charge twice. The merge keeps only the earliest purchase per species and drops later ones, and the same rule applies to a backup import (step 9). Define it with the merge code, before either exists.
 - Mutable data is limited to tag archive and settings. Add `updatedAt` to those at that point (not before) and reuse mello's last-write-wins rule.
 
 Changes from mello:
@@ -436,7 +441,8 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | `sessionReduce` actions | Start rejects a second active session; completion and failure each append one finished session and clear `active`; give-up after `endsAt` records a completion; give-up on a stale session records `left`; stale actions after finishing are no-ops. |
 | `storageSave` and hydration | `sessions` written before `active` removed; hydration drops an `active` whose id is in `sessions`; per-slice writes (a tick does not touch `sessions`); a corrupt slice is not overwritten; a quota error is reported. |
 | Tab ownership reducer rules | Duplicate ids in `sessions` are deduplicated on read. (The lock itself is covered by manual smoke.) |
-| `coinsBalance` and purchases | Failed sessions earn nothing; balance matches purchases; re-pricing does not change history; double purchase and insufficient balance are rejected. |
+| `coinsEarned`, `coinsBalance` | Failed sessions earn nothing; a countdown pays its plan and a stopwatch its unpaused time; floor at the period boundary; balance matches purchases, uses the cost recorded on each purchase rather than the catalog, and can go negative. |
+| `purchaseBuy`, `speciesOwned` | One record with catalog cost, id, and time; exact balance succeeds; one short, double purchase, free species, and unknown species are rejected with the state unchanged; the store ignores a buy when the sessions or purchases slice is unreadable, a purchase record was rejected, or the tab is fenced, and writes only the `purchases` key. |
 | `growthStage` | Monotonic; endpoints; clamps out-of-range input; stopwatch progress caps at fully grown. |
 | Pause and stopwatch | Pause freezes the clock and ignores absence; resume extends `endsAt` by the pause length; a second pause is rejected; a pause past `sessionPauseMaxMs` auto-resumes and then fails a strict session whose user stayed away; a stopwatch completes on stop or at `timerMaxMs` of active time, and still fails on absence; stopwatch coins use elapsed active time. |
 | `time-local`, `forestGroup` | Both DST transitions in `America/Denver` with expected values as ISO strings with explicit offsets; 23:30 and 00:30; the repeated 01:30; Sunday and Monday week starts across month and year boundaries; ranges tile with no gap or overlap; half-open boundaries; start-day grouping; future-dated sessions; array order within a day. |

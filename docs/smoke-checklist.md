@@ -80,6 +80,23 @@ UI is not unit-tested; this is the only coverage. Seed sessions through DevTools
 - [ ] Nav at 320 px and 1280 px: the last tile row and Give Up are never covered. On a phone with a notch, the bar clears the home indicator.
 - [ ] Corrupt `trees:v1:sessions`: the blocked screen appears and no nav does.
 
+## Shop and coins
+
+UI is not unit-tested; this is the only coverage. Seed `trees:v1:sessions` and `trees:v1:purchases` in DevTools to reach a price. A 25-minute completed countdown earns 5 coins, and Pine costs 25.
+
+- [ ] Finish a short session. The result shows "+N coins" (none for a give-up), and the Shop balance rises by N.
+- [ ] Shop with too few coins: each paid card has a Buy button marked `aria-disabled` with "N more coins" text. Tab to it, press Enter: nothing happens, and a screen reader reads the shortfall.
+- [ ] Buy at exactly the price: the card turns to "Owned", the balance drops by the cost, the status line says "Bought" with the name, and keyboard focus lands on that card's name (not the page top).
+- [ ] Double-click Buy: one charge, no error message.
+- [ ] Reload: owned species and the balance persist.
+- [ ] Focus Setup shows the Tree picker only after the first purchase, with arrow keys moving between options. Choose the bought species, start: the Setup preview, the running tree, the result, and the Forest tile all show it.
+- [ ] Switch to the Shop during a running session and back: the session is unaffected, and the Shop does not re-render each second (React Profiler).
+- [ ] Set `trees:v1:purchases` to `{`: a blocking "purchases could not be read" entry, and the Shop shows only the explanation (no balance, no Buy). The key text is untouched.
+- [ ] Set `trees:v1:purchases` to `[{"cost":1.5}]`: the Shop explains that buying is off and shows no balance. The key text is untouched after any other action.
+- [ ] Open the app over plain HTTP from another device: the Shop shows the secure-page note once, under the balance.
+- [ ] Nav at 320 px with a running session (Focus shows a dot) and with a result waiting (Focus shows a mark): all three tabs stay on one line. A screen reader reads "Focus (running)" and "Focus (result ready)". Shop grid at 320 px: two cards per row without overflow.
+- [ ] Open a second tab and use "Use here": the first tab cannot buy (it is fenced).
+
 ## Warnings and errors
 
 - [ ] Ten tab switches in a relaxed session produce no repeated or stacking warnings.

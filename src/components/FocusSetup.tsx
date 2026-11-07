@@ -1,6 +1,7 @@
 import { timerMaxMs, timerMinMs, timerStepMs } from '../lib/config.ts';
 import { durationClamp } from '../lib/duration-clamp.ts';
-import { speciesStarter } from '../lib/species-catalog.ts';
+import { speciesCatalog, speciesResolve, speciesStarter } from '../lib/species-catalog.ts';
+import { speciesOwned } from '../lib/species-owned.ts';
 import type { AppState, StoreApp } from '../lib/store-app.ts';
 import { chimeUnlock } from '../platform/chime.ts';
 import { idAvailable, idNew } from '../platform/id.ts';
@@ -8,7 +9,7 @@ import { TreeSprite } from './TreeSprite.tsx';
 
 const MINUTE_MS = 60_000;
 
-export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number };
+export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number; readonly speciesId: string };
 
 /** The choice lives above this screen so it survives switching to another screen and back. */
 export function FocusSetup({
@@ -24,6 +25,9 @@ export function FocusSetup({
 }) {
   const { settings } = state.data;
   const { mode, durationMs } = choice;
+  const owned = speciesCatalog.filter((species) => speciesOwned(state.data, species.id));
+  // The chosen species is only unowned if the data changed under the screen (an import, later); the starter is always safe.
+  const speciesId = owned.some((species) => species.id === choice.speciesId) ? choice.speciesId : speciesStarter.id;
   const canStart = idAvailable();
   const settingsLocked = state.guard.corrupt.settings !== undefined;
 
@@ -34,10 +38,10 @@ export function FocusSetup({
       now: Date.now(),
       mode: mode === 'countdown' ? { kind: 'countdown', plannedMs: durationClamp(durationMs) } : { kind: 'stopwatch' },
       tagId: undefined,
-      speciesId: speciesStarter.id,
+      speciesId,
     });
     // After the dispatch: audio is optional and must never stop a session from starting.
-    if (result) {
+    if (result && result.rejection === undefined) {
       chimeUnlock((message) => store.statusSet({ code: 'sound', severity: 'warning', message, blocking: false }));
     }
   }
@@ -46,8 +50,30 @@ export function FocusSetup({
     <section className="space-y-5">
       <h1 className="text-xl font-semibold">Focus</h1>
       <div className="mx-auto h-40 w-32">
-        <TreeSprite species={speciesStarter} stage="full" dead={false} decorative />
+        <TreeSprite species={speciesResolve(speciesId)} stage="full" dead={false} decorative />
       </div>
+      {owned.length > 1 ? (
+        <fieldset className="space-y-2">
+          <legend className="mb-1">Tree</legend>
+          <div className="flex flex-wrap gap-2">
+            {owned.map((species) => (
+              <label key={species.id} className="flex items-center gap-2 rounded border border-line px-2 py-1 has-checked:border-accent">
+                <input
+                  type="radio"
+                  name="species"
+                  value={species.id}
+                  checked={speciesId === species.id}
+                  onChange={() => onChoiceChange({ ...choice, speciesId: species.id })}
+                />
+                <span className="h-8 w-7" aria-hidden="true">
+                  <TreeSprite species={species} stage="full" dead={false} decorative />
+                </span>
+                <span>{species.name}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
       <div role="radiogroup" aria-label="Timer mode" className="flex gap-2">
         {(['countdown', 'stopwatch'] as const).map((option) => (
           <button
