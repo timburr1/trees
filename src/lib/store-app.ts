@@ -29,6 +29,8 @@ export type AppState = {
   readonly status: readonly StatusEntry[];
   /** The session history is unreadable, so session actions are ignored rather than risk overwriting it. */
   readonly sessionsBlocked: boolean;
+  /** What is stored lags what this page holds, so a reload would lose changes. Unlike a status entry, the user cannot dismiss it. */
+  readonly unsaved: boolean;
 };
 
 export type StoreAppOptions = {
@@ -101,6 +103,17 @@ export function selectTagsBlock(state: AppState): TagsBlock | undefined {
 
 const saveCodes = ['save-quota', 'save-failed'];
 
+/** Why applying an update (which reloads the page) is off, if it is. */
+export type UpdateBlock = 'session-running' | 'unsaved-changes';
+
+export function selectUpdateBlock(state: AppState): UpdateBlock | undefined {
+  // A stored session beside an unreadable history can never finish, so it does not hold an update back.
+  if (state.data.active !== undefined && !state.sessionsBlocked) {
+    return 'session-running';
+  }
+  return state.unsaved ? 'unsaved-changes' : undefined;
+}
+
 export function storeAppMake(options: StoreAppOptions): StoreApp {
   const { storage, tabId, now, seen, log, onFenced } = options;
   storage.setItem(storeOwnerKey, tabId);
@@ -138,7 +151,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
   }
   const sessionsBlocked = loaded.guard.corrupt.sessions !== undefined;
 
-  let state: AppState = { data: loaded.data, guard: loaded.guard, status, sessionsBlocked };
+  let state: AppState = { data: loaded.data, guard: loaded.guard, status, sessionsBlocked, unsaved: false };
 
   function notify(): void {
     for (const listener of [...listeners]) {
@@ -171,9 +184,11 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
       return false;
     }
     let nextStatus = state.status;
+    let unsaved = true;
     try {
       storageSave(baseline, next, storage, state.guard);
       baseline = next;
+      unsaved = false;
       nextStatus = nextStatus.filter((entry) => !saveCodes.includes(entry.code));
       for (const code of saveCodes) {
         dismissed.delete(code);
@@ -186,7 +201,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
           ? statusWith(nextStatus, { code: 'save-quota', severity: 'error', message: 'Storage is full. Your latest changes are not saved.', blocking: false })
           : statusWith(nextStatus, { code: 'save-failed', severity: 'error', message: `Your latest changes could not be saved: ${message}`, blocking: false });
     }
-    stateSet({ ...state, data: next, status: nextStatus });
+    stateSet({ ...state, data: next, status: nextStatus, unsaved });
     return true;
   }
 
@@ -213,6 +228,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
         dead = true;
         stateSet({
           ...state,
+          unsaved: true,
           status: statusWith(state.status, {
             code: 'storage-inconsistent',
             severity: 'error',
@@ -246,7 +262,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     for (const input of replaced) {
       nextStatus = statusWith(nextStatus, input);
     }
-    stateSet({ data: next, guard: loaded.guard, status: nextStatus, sessionsBlocked: loaded.guard.corrupt.sessions !== undefined });
+    stateSet({ data: next, guard: loaded.guard, status: nextStatus, sessionsBlocked: loaded.guard.corrupt.sessions !== undefined, unsaved: false });
     return 'replaced';
   }
 

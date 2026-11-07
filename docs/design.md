@@ -85,6 +85,10 @@ Versions: scaffold with current releases and pin whatever resolves. Mello has no
 
 The worker precaches the built app shell (js, css, html, svg, png, the manifest) and nothing else; the forest is in `localStorage`, so there is no data to cache. Navigation falls back to the cached `index.html` except for paths that end in a file extension, in step with the SWA exclusions, so opening a file URL offline does not show the app. The page registers the worker through `virtual:pwa-register` (`injectRegister: false`), so `index.html` has no inline script. The manifest is generated from `vite.config.ts`: name "Trees", `display: standalone`, theme and background `#0f172a`, icons at 192 and 512 (`any`) and 512 (`maskable`). `index.html` adds an `apple-touch-icon` and a light and a dark `theme-color` matching the surface tokens.
 
+Updates go through `platform/app-update.ts`. A waiting worker shows an `UpdatePrompt` with an Update button; the page never reloads by itself. Update is disabled, with the reason in text, while a session runs, and while the store's `unsaved` flag is set, which a failed save or a failed rollback sets and a successful save or replace clears (memory is ahead of the disk, and a reload throws it away; section 6 says to export from memory first; dismissing the banner does not clear it). A stored session beside an unreadable history does not count as running. That rule is `selectUpdateBlock` in `store-app.ts`. The prompt shows on every screen that has a frame, including the blocked-sessions screen, and on the failed and storage-unavailable screens, because in prompt mode a reload alone does not activate a waiting worker and a deploy may be what fixes a crashing shell. It does not show on the other-tab screen (that tab may own a running session) or in the `#fatal` region, which sits outside React; closing every tab is the way out of a render crash. A tab or installed app left open for days checks for a new version when it becomes visible, at most once an hour (`check` in `app-update.ts`).
+
+A residual risk: in prompt mode, a tab reloads when any tab applies an update, whatever it is showing (the plugin's `controlling` listener is added when a waiting worker is reported). A tab that runs a session therefore reloads when a tab on the failed or storage-unavailable screen applies the update, and Update is disabled only in the tab that knows of the running session. The risk is accepted for the prototype.
+
 The PNG icons are generated once and committed, so CI's `npm ci` needs no image tooling. `public/favicon.svg` is the source for `icon-192.png` and `icon-512.png`; `public/icons/maskable.svg` (the same glyph on a full-bleed square, since the tree's farthest point sits inside the maskable safe circle) is the source for `maskable-512.png` and `apple-touch-icon.png` (180 px; iOS rounds the corners itself). To regenerate, install `sharp` in a directory outside the repo and render each SVG with `sharp(svg, { density: 1200 }).resize(size, size).png()`.
 
 ## 5. Session logic (the core)
@@ -344,7 +348,7 @@ Only completed sessions count as focused time. "Today" is derived from an inject
 
 ## 10. UI
 
-Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6 to 9 ship Focus, Forest, Shop, Stats, and Settings. The tabs never shrink below their text (`min-w-fit`) and wrap to a second row when text is large, so they cannot overflow. Settings is a gear icon with an accessible name, since a fifth text tab does not fit one row at 320 px; the nav's side padding is trimmed to make room. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species, tag) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result). The duration stays `undefined` until the slider moves, so it follows the default in Settings. Screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
+Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6 to 9 ship Focus, Forest, Shop, Stats, and Settings. The tabs never shrink below their text (`min-w-fit`) and wrap to a second row when text is large, so they cannot overflow. Settings is a gear icon with an accessible name, since a fifth text tab does not fit one row at 320 px; the nav's side padding is trimmed to make room. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species, tag) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result). The duration stays `undefined` until the slider moves, so it follows the default in Settings. Screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path. A ready update shows a prompt above the status banner (section 4).
 
 | Screen | Contents |
 | --- | --- |
@@ -398,12 +402,14 @@ src/
     id.ts                       crypto.randomUUID, secure context only
     file-save.ts                fileSave: Blob download, or the share sheet in an installed iOS app
     install-state.ts            installStateGet: reads the browser, then installEnvParse
+    app-update.ts               appUpdateMake: service worker registration, update status, hourly check (section 4)
     owner-lock.ts               ownerLockAcquire, ownerLockSteal (section 5.4)
     app-controller.ts           owner lock, store lifetime, bfcache, storage-unavailable (section 5.4)
     wake-lock.ts                wakeLockMake (section 5.5)
     chime.ts
   hooks/
     useApp.ts                   controller status via useSyncExternalStore
+    useAppUpdate.ts             update status via useSyncExternalStore
     useStore.ts                 select from the store
     useClock.ts                 render clock
     usePeriodView.ts            period, range, and navigation shared by Forest and Stats; owns the minute clock

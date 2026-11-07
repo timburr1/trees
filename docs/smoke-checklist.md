@@ -170,6 +170,15 @@ UI is not unit-tested; this is the only coverage.
 - [ ] Deployed site: `/manifest.webmanifest` has a JSON content type, `/sw.js` is JavaScript, and a request for a missing file such as `/icons/none.png` returns 404, not the app. Note the manifest's content type; add a `mimeTypes` entry for `.webmanifest` if it is wrong.
 - [ ] iOS: Add to Home Screen shows the tree icon and the name "Trees", and the app opens without browser chrome.
 
+## Updates
+
+- [ ] Build and serve (`npm run build`, `npm run preview`), load the page, change any text, rebuild, and reload the preview server's page: after the browser fetches the new worker, an "update ready" prompt appears with an enabled Update button. Update reloads into the new version.
+- [ ] With the prompt showing, start a session: Update is disabled and says why; after the session ends it enables.
+- [ ] With the prompt showing, force a save failure (fill storage as in Warnings and errors): Update is disabled and tells you to export first.
+- [ ] The prompt also appears on the blocked-sessions screen, and where the app cannot start (block site data).
+- [ ] Leave a tab open and hidden past an hour, deploy a new build, then show the tab: the prompt appears without a reload.
+- [ ] Open two tabs with a ready update, apply it in one, and note that the other reloads (design section 4 names this).
+
 ## Not verifiable until later steps
 
 - Wake Lock behavior in an installed iOS PWA (step 10).

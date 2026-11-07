@@ -1,6 +1,6 @@
 import { sessionGraceMs } from './config.ts';
 import type { SessionAction } from './session-reduce.ts';
-import { selectResultPending, storeAppMake, type StoreApp } from './store-app.ts';
+import { selectResultPending, selectUpdateBlock, storeAppMake, type AppState, type StoreApp } from './store-app.ts';
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
 import type { StorageLoadResult } from './storage-load.ts';
 import { storageSave } from './storage-save.ts';
@@ -617,5 +617,45 @@ describe('storeAppMake: grace boundary through the store', () => {
     clock.now = t0 + sessionGraceMs;
     store.sessionDispatch(touch(clock.now));
     expect(store.getState().data.active?.lastSeenAt).toBe(t0 + sessionGraceMs);
+  });
+});
+
+describe('selectUpdateBlock', () => {
+  const stateMake = (running: boolean, unsaved: boolean, sessionsBlocked = false): AppState => ({
+    data: persistedMake({ active: running ? sessionActiveMake() : undefined }),
+    guard: storageGuardEmpty,
+    status: [],
+    sessionsBlocked,
+    unsaved,
+  });
+
+  it('allows an update when nothing is running and nothing is unsaved', () => {
+    expect(selectUpdateBlock(stateMake(false, false))).toBeUndefined();
+  });
+
+  it('refuses while a session runs', () => {
+    expect(selectUpdateBlock(stateMake(true, false))).toBe('session-running');
+  });
+
+  it('refuses while the disk lags memory, and reports the running session first when both apply', () => {
+    expect(selectUpdateBlock(stateMake(false, true))).toBe('unsaved-changes');
+    expect(selectUpdateBlock(stateMake(true, true))).toBe('session-running');
+  });
+
+  // A stored session beside an unreadable history can never finish.
+  it('does not count a stored session as running while the history is unreadable', () => {
+    expect(selectUpdateBlock(stateMake(true, false, true))).toBeUndefined();
+  });
+
+  it('follows the store: a failed save blocks, and dismissing its banner does not unblock', () => {
+    const { store, storage } = harnessMake();
+    storage.setItemFailNext = quotaError();
+    store.settingsSet(settingsMake({ soundOn: false }));
+    expect(selectUpdateBlock(store.getState())).toBe('unsaved-changes');
+    const entry = store.getState().status.find((candidate) => candidate.code === 'save-quota');
+    store.statusDismiss(entry?.id ?? -1);
+    expect(selectUpdateBlock(store.getState())).toBe('unsaved-changes');
+    store.settingsSet(settingsMake({ soundOn: true }));
+    expect(selectUpdateBlock(store.getState())).toBeUndefined();
   });
 });

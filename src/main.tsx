@@ -2,7 +2,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
 import { storeOwnerKey } from './lib/store-app.ts';
+import { registerSW } from 'virtual:pwa-register';
 import { appControllerMake } from './platform/app-controller.ts';
+import { appUpdateMake } from './platform/app-update.ts';
 import { chimeUnlock } from './platform/chime.ts';
 import './index.css';
 
@@ -29,6 +31,19 @@ const controller = appControllerMake({
   tabIdNew: () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
   now: () => Date.now(),
   seen: () => document.visibilityState === 'visible',
+  log,
+});
+
+// Registers the service worker, so the page itself never reloads for an update: the user applies it from the prompt when no session runs.
+const update = appUpdateMake({
+  register: (callbacks) =>
+    registerSW({
+      immediate: true,
+      onNeedRefresh: callbacks.onNeedRefresh,
+      onRegisteredSW: (_url, registration) => callbacks.onRegistered(registration),
+      onRegisterError: callbacks.onRegisterError,
+    }),
+  now: () => Date.now(),
   log,
 });
 
@@ -69,6 +84,12 @@ window.addEventListener('storage', (event) => {
     status.store.ownerCheck();
   }
 });
+// A tab or installed app left open for days would otherwise never ask for a new version.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    void update.check();
+  }
+});
 // A reload mid-session has no Start click to unlock audio, so the first activating gesture does it. `pointerdown` does not count as activation for touch, so listen for `click` and `pointerup`.
 const unlock = () => chimeUnlock((message) => log(message));
 for (const type of ['click', 'pointerup', 'keydown'] as const) {
@@ -80,7 +101,7 @@ createRoot(root, {
   onRecoverableError: (error) => console.warn('[trees] recoverable render error', error),
 }).render(
   <StrictMode>
-    <App controller={controller} />
+    <App controller={controller} update={update} />
   </StrictMode>,
 );
 
