@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
+import { durationFormat } from '../lib/duration-format.ts';
 import { growthFinished, sessionFinishedActiveMs } from '../lib/session-growth.ts';
 import { speciesResolve } from '../lib/species-catalog.ts';
 import { treeLabel } from '../lib/tree-label.ts';
 import type { SessionFinished, SessionOutcome, Tag } from '../lib/types.ts';
-
-const MINUTE_MS = 60_000;
 
 function outcomeShort(outcome: SessionOutcome): string {
   switch (outcome.kind) {
@@ -25,7 +24,6 @@ export function ForestDetails({ id, session, tags }: { id: string; session: Sess
   }, []);
   const tree = growthFinished(session);
   const tag = session.tagId === undefined ? undefined : tags.find((entry) => entry.id === session.tagId);
-  const activeMinutes = Math.round(sessionFinishedActiveMs(session) / MINUTE_MS);
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="mt-2 w-full rounded border border-line p-3 text-sm">
       <h3 id={`${id}-heading`} ref={heading} tabIndex={-1} className="font-semibold">
@@ -35,7 +33,7 @@ export function ForestDetails({ id, session, tags }: { id: string; session: Sess
         <dt className="text-muted">Started</dt>
         <dd>{new Date(session.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</dd>
         <dt className="text-muted">Focused</dt>
-        <dd>{activeMinutes === 1 ? '1 minute' : `${activeMinutes} minutes`}</dd>
+        <dd>{durationFormat(sessionFinishedActiveMs(session))}</dd>
         <dt className="text-muted">Result</dt>
         <dd>{outcomeShort(session.outcome)}</dd>
         {tag ? (
