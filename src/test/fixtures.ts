@@ -1,3 +1,4 @@
+import { coinsEarned } from '../lib/coins.ts';
 import type { Persisted, Purchase, SessionActive, SessionFinished, Settings, Tag, UiState } from '../lib/types.ts';
 
 const MINUTE_MS = 60_000;
@@ -49,4 +50,15 @@ export function persistedMake(overrides: Partial<Persisted> = {}): Persisted {
 
 export function uiMake(overrides: Partial<UiState> = {}): UiState {
   return { lastAcknowledgedId: undefined, lastExportedAt: undefined, ...overrides };
+}
+
+/** What one default completed session earns. */
+export const sessionCoinsEach = coinsEarned(sessionFinishedMake());
+
+/** Completed sessions worth exactly `coins`, which must be a multiple of `sessionCoinsEach`. */
+export function sessionsWithCoins(coins: number): SessionFinished[] {
+  if (coins % sessionCoinsEach !== 0) {
+    throw new Error(`coins must be a multiple of ${sessionCoinsEach}`);
+  }
+  return Array.from({ length: coins / sessionCoinsEach }, (_, index) => sessionFinishedMake({ id: `coin-${index}` }));
 }
