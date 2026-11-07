@@ -9,6 +9,7 @@
   --color-line: #d3d9e4;
   --color-accent: #2f5fe0;
   --color-accent-ink: #ffffff;
+  --color-ground: #a3b295;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
@@ -22,6 +23,7 @@
     --color-line: #2c3650;
     --color-accent: #6b93ff;
     --color-accent-ink: #0b1120;
+    --color-ground: #b4c2a6;
   }
 }
 
@@ -37,6 +39,19 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Replayed by remounting on each growth stage. */
+.tree-grow {
+  transform-origin: 50% 100%;
+  animation: tree-grow 0.6s ease-out;
+}
+
+@keyframes tree-grow {
+  from {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
