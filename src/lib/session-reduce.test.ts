@@ -108,6 +108,11 @@ describe('sessionTouch', () => {
     expect(result.rejection).toBeUndefined();
   });
 
+  it('returns the same state when lastSeenAt already equals now', () => {
+    const state = stateRunning({ lastSeenAt: t0 + 5_000 });
+    expect(reduce(state, { kind: 'sessionTouch', now: t0 + 5_000, seen: true }).state).toBe(state);
+  });
+
   it('changes nothing, and returns the same state, when the page was not seen', () => {
     const state = stateRunning();
     const result = reduce(state, { kind: 'sessionTouch', now: t0 + 5_000, seen: false });

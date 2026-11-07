@@ -103,7 +103,8 @@ function actionApply(state: Persisted, action: SessionAction): SessionReduceResu
     case 'sessionTouch': {
       const { active } = state;
       // lastSeenAt is set to now, not max(): settling already ran, and a clock corrected backward must take effect at once.
-      if (!active || active.pausedAt !== undefined || !action.seen) {
+      // Two events in one millisecond must not cost a write and a re-render.
+      if (!active || active.pausedAt !== undefined || !action.seen || active.lastSeenAt === action.now) {
         return resultKeep(state);
       }
       return resultKeep({ ...state, active: { ...active, lastSeenAt: action.now } });
