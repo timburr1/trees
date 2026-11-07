@@ -13,3 +13,11 @@ export class ErrorStorageQuota extends Error {
     this.name = 'ErrorStorageQuota';
   }
 }
+
+/** The browser lacks a capability the app needs for the requested action, such as `crypto.randomUUID` outside a secure context. */
+export class ErrorPlatformUnsupported extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorPlatformUnsupported';
+  }
+}

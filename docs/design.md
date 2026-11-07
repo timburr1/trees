@@ -191,7 +191,7 @@ There is one 1 s interval, not a separate heartbeat. Writing about 200 bytes a s
 
 ### 5.3 State and persistence flow
 
-State lives in a small store held outside React render (a ref plus subscribers, exposed by `AppProvider`). `useReducer` is not used because saves must be synchronous with the action, not an effect that runs after render.
+State lives in a small store held outside React render (`lib/store-app.ts`: `getState`, `subscribe`, and one internal `commit` path that every write goes through; React reads it with `useSyncExternalStore`). `useReducer` is not used because saves must be synchronous with the action, not an effect that runs after render.
 
 ```
 event → dispatch(action) → next = reduce(current, action)
@@ -201,6 +201,7 @@ event → dispatch(action) → next = reduce(current, action)
 
 Rules:
 
+- **Baseline versus state.** The store keeps what is known to be on disk (`baseline`) apart from what the user sees. A failed save advances the in-memory state but not the baseline, so the next commit rewrites the slices that failed.
 - **Per-slice writes.** `persist(prev, next)` compares slice references and writes only the changed ones. A tick writes only `active`.
 - **Finishing is ordered.** When an action finishes a session, write `sessions` first, then remove `active`. If the page dies in between, hydration sees an `active` whose id is already in `sessions` and drops it. No duplicate, no lost session.
 - **Give-up, completion, and failure save synchronously** inside `dispatch`, so a kill right after the click cannot resurrect a given-up session.
@@ -212,16 +213,28 @@ After a session finishes the UI shows a result screen until dismissed. `lastAckn
 
 Two tabs on the same origin would each run a tick, hold stale state, and overwrite each other: a given-up session coming back to life from a stale `active`, a finished session erased by a stale `sessions` array, a completion recorded twice and paid twice. So exactly one tab runs the app.
 
-- On load, the tab requests `navigator.locks.request('trees:owner', { ifAvailable: true }, ...)` and holds it for the page's lifetime.
-- A tab that does not get the lock renders a "Trees is open in another tab" screen with a **Use here** button, which requests the lock with `steal: true` and hydrates fresh from storage.
-- A tab that loses the lock to a steal drops to the same screen and discards its in-memory state.
+- At page load, **outside React**, the app controller (`platform/app-controller.ts`) requests `navigator.locks.request('trees:owner', { ifAvailable: true }, ...)` and holds it for the page's lifetime. It must not live in an effect: a Web Lock cannot be released synchronously, so StrictMode's double mount would lose the lock to itself. The store is created only after the lock is won.
+- A tab that does not get the lock renders a "Trees is open in another tab" screen with a **Use here** button, which requests the lock with `steal: true` and builds a fresh store from storage.
+- A tab that loses the lock to a steal (its request rejects with `AbortError`) drops to the same screen and discards its store.
+- **Write fence.** A tab may not hear it lost the lock before it writes (frozen or backgrounded tab, `pagehide` of a closing tab). So the store writes `trees:v1:owner = <tabId>` on creation and checks the key still equals its id before every write. A mismatch refuses the write, kills the store permanently, and drops the controller to the "other tab" screen. A `storage` event on the owner key runs the same check at once, so a tab learns it lost ownership without waiting for its next write. This narrows the window but is not a mutex: browsers deliver other tabs' localStorage writes asynchronously, so a frozen tab that wakes can still slip one write in before it hears. The lock is the primary guard and the fence is the backstop.
+- Without Web Locks (insecure context, old browser) the app proceeds as owner and shows a warning; only the fence guards the data, and it is weaker there.
 - Defense in depth: `sessions` is deduplicated by id on every read.
+- **Back/forward cache.** On `pagehide` with `persisted`, the controller releases the lock and drops the store; on `pageshow` with `persisted` it starts again from storage. The session survives through its timestamps.
 
 A held Web Lock may keep a page out of the back/forward cache in some browsers; check during the manual smoke.
 
 ### 5.5 Browser wiring
 
-`useSessionRunner` is plumbing: it registers the interval and event listeners from the table above, maps them to `sessionTouch`, manages Wake Lock (acquire on start and on becoming visible, listen for `release`), plays the chime, and updates `document.title` with the countdown. It has no injected effect sources and no unit tests; the logic it forwards to is covered in the reducer, and the rest is covered by the manual smoke (section 14).
+`useSessionRunner` is plumbing: it registers the interval and event listeners from the table above, maps them to `sessionTouch`, plays the chime, and updates `document.title` with the countdown. It has no injected effect sources and no unit tests; the logic it forwards to is covered in the reducer, and the rest is covered by the manual smoke (section 14). Its callbacks read `store.getState()` when they run, and its effect depends on the session id only, so a tick does not tear down and re-register listeners.
+
+- **Presence.** The interval and `pageshow`, `focus`, and `resume` report `seen: visible`. `visibilitychange` (either direction) and `pagehide` report `seen: true`: hiding records when the user left, and showing runs after settling, so a strict session that overstayed the grace period has already failed.
+- **Wake Lock** (`platform/wake-lock.ts`, with a small fake-driven test) is held for the whole session, **pauses included**, so a phone does not lock mid-pause and fail a strict session on return. A sentinel that arrives after `stop` is released at once; the lock is requested again whenever the page becomes visible; a warning appears only when the lock is released while the page is visible (the system took it, for example battery saver), never for the normal release at hide.
+- **Chime.** It plays only when a runner-dispatched touch returns a `finished` completion whose `endedAt` is under 90 s old (a hidden tab's timer can be throttled to once a minute). So there is no chime for the settle at page load, for a manual Stop or Give Up, or for a completion found after waking from sleep. The `AudioContext` is unlocked after a successful Start (audio is optional and must never block a session) and on every `click`, `pointerup`, or `keydown`, because a reload mid-session has no Start click and `pointerdown` does not count as user activation on touch; a chime due while the context is suspended tries `resume()` first; `navigator.audioSession.type = 'playback'` is set where it exists so iOS does not mute it under the ringer switch. A still-suspended context at chime time becomes a warning.
+- **Render clock.** Components take `now` from `useClock` and display from `sessionResolve(active, now).active`, so an expired pause never reads as paused.
+
+**Errors reach the user.** Save failures become `StatusBanner` entries and log lines, never rethrows from a timer. Entries are keyed by `code`, so a full disk shows one entry and not one per second, and a successful save clears it. The window `error` and `unhandledrejection` events route to the store's status when one exists and to an alert region in `index.html` otherwise. React's `onUncaughtError` always uses the alert region, because an uncaught render error unmounts the tree and a store banner would never show; `onRecoverableError` is only logged. A status entry that repeats unchanged keeps its identity, and one the user dismissed stays hidden until its condition clears.
+
+**Secure context.** `crypto.randomUUID`, Web Locks, and Wake Lock exist only over HTTPS or on localhost. Testing on a phone against a plain-HTTP LAN address cannot start a session; use a tunnel, the `preview` build behind HTTPS, or the SWA preview environment.
 
 ## 6. Persistence
 
@@ -308,7 +321,7 @@ Five screens in a bottom tab bar (mobile) or side rail (desktop). Tab state is i
 
 | Screen | Contents |
 | --- | --- |
-| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS. |
+| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Step 4 ships a subset: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, no tag or species picker, a placeholder tree, no coins. |
 | Forest | Section 8.3. |
 | Stats | Period switch, totals, per-tag breakdown, streaks. |
 | Shop | Species grid with cost and owned state, coin balance. |
@@ -327,7 +340,10 @@ src/
   App.tsx
   lib/                          pure: no DOM, no Date.now(), no randomness, no storage
     types.ts                    data model
-    config.ts                   named constants, category first: timerMinMs, timerMaxMs, timerDefaultMs, sessionGraceMs, sessionPauseMaxMs so far; each later step adds the ones it uses
+    config.ts                   named constants, category first: timerMinMs, timerMaxMs, timerStepMs, timerDefaultMs, sessionGraceMs, sessionPauseMaxMs so far; each later step adds the ones it uses
+    store-app.ts                the store (section 5.3), write fence, status entries, selectResultPending
+    clock-format.ts             clockFormatRemaining (rounds up), clockFormatElapsed (rounds down)
+    duration-clamp.ts           durationClamp: every UI path to sessionStart goes through it
     session-reduce.ts           reducer; every session action resolves first
     session-resolve.ts          section 5.2: sessionResolve, sessionPauseExpire, sessionEndsAt, sessionElapsedMs, SessionRules
     coins-balance.ts
@@ -343,16 +359,18 @@ src/
     storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes
     backup-export.ts
     backup-import.ts
-    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorImportInvalid
+    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid
   platform/                     thin browser wrappers
-    id.ts                       crypto.randomUUID
-    lock-owner.ts               Web Lock ownership (section 5.4)
-    wake-lock.ts
+    id.ts                       crypto.randomUUID, secure context only
+    owner-lock.ts               ownerLockAcquire, ownerLockSteal (section 5.4)
+    app-controller.ts           owner lock, store lifetime, bfcache, storage-unavailable (section 5.4)
+    wake-lock.ts                wakeLockMake (section 5.5)
     chime.ts
   hooks/
-    AppProvider.tsx             store, hydration, dispatch wrapper
+    useApp.ts                   controller status via useSyncExternalStore
+    useStore.ts                 select from the store
+    useClock.ts                 render clock
     useSessionRunner.ts         section 5.5
-    useApp.ts
   components/                   section 10
 public/
   favicon.svg
@@ -409,7 +427,7 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | Backup | Round-trip; invalid files rejected with a specific error; import never partially applies; `lastAcknowledgedId` survives a reload. |
 | Catalog | Unique ids, nonnegative costs, exactly one free species, `leafColors.length === STAGE_COUNT`. |
 
-Not unit-tested, and reported as such: SVG rendering, layout, Web Locks, Wake Lock, audio, and the `useSessionRunner` wiring. These get a written manual smoke checklist run on a real phone and a desktop: start; switch tabs under and over the grace period; cover the window fully; lock the phone; close the laptop lid and reopen; kill and reopen mid-session; open a second tab and use "Use here"; install the PWA; go offline; export on iOS standalone. A Playwright test using its fake clock for one end-to-end timer run is a reasonable follow-up.
+Not unit-tested, and reported as such: SVG rendering, layout, the real Web Locks, Wake Lock, and audio implementations, and the `useSessionRunner` wiring. The races around them (owner lock, wake-lock controller, app controller, store fence) are tested against fakes. The rest gets a written manual smoke checklist (`docs/smoke-checklist.md`) run on a real phone and a desktop: start; switch tabs under and over the grace period; cover the window fully; lock the phone; close the laptop lid and reopen; kill and reopen mid-session; open a second tab and use "Use here"; install the PWA; go offline; export on iOS standalone. A Playwright test using its fake clock for one end-to-end timer run is a reasonable follow-up.
 
 ## 15. Implementation sequence
 
@@ -418,12 +436,12 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 1. Scaffold: Vite, TypeScript, React, Tailwind, ESLint, formatter, Vitest; CI workflow; an empty app that deploys.
 2. Types, errors, `storage-coerce`, `storage-load`, `storage-save`, and tests. (`time-local` moves to step 8 with its first user.)
 3. `session-resolve` and `session-reduce`, tests first.
-4. Store, `AppProvider`, owner lock, Focus screen, `useSessionRunner`, with a placeholder tree.
+4. Store, app controller and owner lock, Focus screen, `useSessionRunner`, `StatusBanner`, with a placeholder tree.
 5. Species catalog, growth stages, `TreeSprite`.
 6. Forest screen.
 7. Coins, purchases, Shop.
 8. Stats.
-9. Settings, backup export and import, `StatusBanner`.
+9. Settings, tag management, backup export and import.
 10. PWA manifest, icons, service worker, SWA and CSP config.
 
 **Before step 4 finishes, test strict mode on a real phone** (open question 1).
