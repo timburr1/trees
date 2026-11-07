@@ -4,7 +4,7 @@ import { selectResultPending, storeAppMake, type StoreApp } from './store-app.ts
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
 import { storageSave } from './storage-save.ts';
 import type { Persisted } from './types.ts';
-import { persistedMake, sessionActiveMake, sessionFinishedMake, settingsMake, uiMake } from '../test/fixtures.ts';
+import { persistedMake, purchaseMake, sessionActiveMake, sessionFinishedMake, settingsMake, uiMake } from '../test/fixtures.ts';
 import { storageFakeMake, type StorageFake } from '../test/storage-fake.ts';
 
 const MIN = 60_000;
@@ -88,6 +88,29 @@ describe('storeAppMake: hydration', () => {
     seed(storage, running());
     const store = storeAppMake({ storage, tabId: 't', now: () => t0 + 5 * MIN, seen: () => true, log: () => {}, onFenced: () => {} });
     expect(store.getState().data.sessions[0]?.outcome.kind).toBe('failed');
+  });
+});
+
+describe('storeAppMake: unknown species', () => {
+  const unknown = 'no-such-tree';
+
+  it('warns once, with a count, for unknown ids across sessions, the active session, and purchases', () => {
+    const { store } = harnessMake(
+      persistedMake({
+        sessions: [sessionFinishedMake({ id: 'a', speciesId: unknown }), sessionFinishedMake({ id: 'b', speciesId: unknown })],
+        purchases: [purchaseMake({ speciesId: 'purchase-missing' })],
+        active: sessionActiveMake({ id: 's9', startedAt: t0, lastSeenAt: t0, speciesId: 'third-missing' }),
+      }),
+    );
+    const entries = store.getState().status.filter((entry) => entry.code === 'species-unknown');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.message).toMatch(/\b3\b/);
+    expect(entries[0]?.blocking).toBe(false);
+  });
+
+  it('does not warn when every species is known', () => {
+    const { store } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'a' })] }));
+    expect(store.getState().status.some((entry) => entry.code === 'species-unknown')).toBe(false);
   });
 });
 

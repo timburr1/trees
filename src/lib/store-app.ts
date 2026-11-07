@@ -1,5 +1,6 @@
 import { ErrorStorageQuota } from './errors.ts';
 import { sessionReduce, type SessionAction, type SessionReduceResult } from './session-reduce.ts';
+import { speciesUnknownCount } from './species-catalog.ts';
 import { storageLoad } from './storage-load.ts';
 import { storageSave } from './storage-save.ts';
 import type { StorageGuard, StorageLike } from './storage-slices.ts';
@@ -94,6 +95,20 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     log(`storage problem: ${problem.message}`);
     status = statusWith(status, { code: `load-problem-${index}`, severity: 'warning', message: problem.message, blocking: false });
   });
+  const unknownSpecies = speciesUnknownCount([
+    ...loaded.data.sessions.map((session) => session.speciesId),
+    ...loaded.data.purchases.map((purchase) => purchase.speciesId),
+    ...(loaded.data.active ? [loaded.data.active.speciesId] : []),
+  ]);
+  if (unknownSpecies > 0) {
+    log(`${unknownSpecies} unknown species in stored data`);
+    status = statusWith(status, {
+      code: 'species-unknown',
+      severity: 'warning',
+      message: `Species this version does not know: ${unknownSpecies}. Their trees show as a generic tree.`,
+      blocking: false,
+    });
+  }
   const sessionsBlocked = loaded.guard.corrupt.sessions !== undefined;
   if (sessionsBlocked) {
     status = statusWith(status, {
