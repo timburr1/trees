@@ -1,4 +1,14 @@
-import { timeDayAdd, timeDayStart, timeMonthStart, timePeriodRange, timePeriodStep, timeStartEffective, timeWeekStart, type TimePeriod } from './time-local.ts';
+import {
+  timeDayAdd,
+  timeDayStart,
+  timeMonthStart,
+  timePeriodHasNext,
+  timePeriodRange,
+  timePeriodStep,
+  timeStartEffective,
+  timeWeekStart,
+  type TimePeriod,
+} from './time-local.ts';
 import { at } from '../test/at.ts';
 
 const HOUR = 3_600_000;
@@ -180,5 +190,20 @@ describe('timeStartEffective', () => {
   it('leaves a past start alone and pulls a future start back to now', () => {
     expect(timeStartEffective(100, 200)).toBe(100);
     expect(timeStartEffective(300, 200)).toBe(200);
+  });
+});
+
+describe('timePeriodHasNext', () => {
+  const now = at('2026-06-10T12:00:00-06:00');
+
+  it('is true for a past period, including when now is exactly its end', () => {
+    const past = timePeriodRange('week', at('2026-06-01T12:00:00-06:00'), 'sunday');
+    expect(timePeriodHasNext(past, now)).toBe(true);
+    expect(timePeriodHasNext(past, past.end)).toBe(true);
+  });
+
+  it('is false for the current period and for a future one, such as after the clock is set back', () => {
+    expect(timePeriodHasNext(timePeriodRange('week', now, 'sunday'), now)).toBe(false);
+    expect(timePeriodHasNext(timePeriodRange('week', at('2026-07-01T12:00:00-06:00'), 'sunday'), now)).toBe(false);
   });
 });

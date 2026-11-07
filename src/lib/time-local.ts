@@ -62,6 +62,11 @@ export function timePeriodStep(period: TimePeriod, range: TimeRange, direction: 
   return next.start <= now && now < next.end ? undefined : range.end;
 }
 
+/** Whether stepping forward from `range` lands on a period that has begun. False for the current period, and for a future one (the clock was set back). */
+export function timePeriodHasNext(range: TimeRange, now: number): boolean {
+  return range.end <= now;
+}
+
 /** A start dated after the clock (it was set forward once) counts as starting now, so the session stays in the current period. */
 export function timeStartEffective(startedAt: number, now: number): number {
   return Math.min(startedAt, now);

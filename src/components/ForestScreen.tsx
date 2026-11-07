@@ -3,7 +3,7 @@ import { useClock } from '../hooks/useClock.ts';
 import { useStore } from '../hooks/useStore.ts';
 import { forestGroup } from '../lib/forest-group.ts';
 import type { StoreApp } from '../lib/store-app.ts';
-import { timePeriodRange, timePeriodStep, type TimePeriod, type TimeRange } from '../lib/time-local.ts';
+import { timePeriodHasNext, timePeriodRange, timePeriodStep, type TimePeriod, type TimeRange } from '../lib/time-local.ts';
 import { ForestDay } from './ForestDay.tsx';
 
 const periods: readonly TimePeriod[] = ['day', 'week', 'month'];
@@ -35,7 +35,6 @@ export function ForestScreen({ store }: { store: StoreApp }) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
 
   const range = timePeriodRange(period, anchor ?? now, weekStart);
-  const isCurrent = range.start <= now && now < range.end;
   // Past the end of a viewed range `now` changes nothing, so cap it and keep the grouping memo stable across the clock tick.
   const nowCapped = Math.min(now, range.end);
   const groups = useMemo(() => forestGroup(sessions, { start: range.start, end: range.end }, nowCapped), [sessions, range.start, range.end, nowCapped]);
@@ -76,7 +75,12 @@ export function ForestScreen({ store }: { store: StoreApp }) {
           Previous
         </button>
         <p className="text-center">{rangeTitle(period, range)}</p>
-        <button type="button" disabled={isCurrent} className="rounded border border-line px-3 py-1 disabled:opacity-50" onClick={() => step('next')}>
+        <button
+          type="button"
+          disabled={!timePeriodHasNext(range, now)}
+          className="rounded border border-line px-3 py-1 disabled:opacity-50"
+          onClick={() => step('next')}
+        >
           Next
         </button>
       </div>
