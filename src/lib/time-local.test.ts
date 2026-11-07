@@ -1,14 +1,5 @@
 import { timeDayAdd, timeDayStart, timeMonthStart, timePeriodRange, timePeriodStep, timeStartEffective, timeWeekStart, type TimePeriod } from './time-local.ts';
-
-// Expected values are ISO strings with explicit offsets, so they are computed independently of the local-Date arithmetic under test.
-// Denver 2026: DST starts Sun 2026-03-08 (a 23-hour day, -07:00 to -06:00) and ends Sun 2026-11-01 (a 25-hour day, -06:00 to -07:00).
-// Date-only strings are banned: they parse as UTC, which is the previous evening in Denver.
-function at(iso: string): number {
-  if (!/T\d\d:\d\d:\d\d[+-]\d\d:\d\d$/.test(iso)) {
-    throw new Error(`Use a full ISO timestamp with an offset, not "${iso}"`);
-  }
-  return Date.parse(iso);
-}
+import { at } from '../test/at.ts';
 
 const HOUR = 3_600_000;
 

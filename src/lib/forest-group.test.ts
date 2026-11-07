@@ -2,9 +2,9 @@ import { forestGroup } from './forest-group.ts';
 import { timePeriodRange } from './time-local.ts';
 import type { SessionFinished } from './types.ts';
 import { sessionFinishedMake } from '../test/fixtures.ts';
+import { at } from '../test/at.ts';
 
 // Explicit-offset ISO strings, so expectations do not use the local-Date arithmetic the code uses (Denver, MDT is -06:00).
-const at = (iso: string) => Date.parse(iso);
 const session = (id: string, iso: string, overrides: Partial<SessionFinished> = {}) =>
   sessionFinishedMake({ id, startedAt: at(iso), endedAt: at(iso) + 25 * 60_000, ...overrides });
 const ids = (days: ReturnType<typeof forestGroup>) => days.map((day) => day.sessions.map((entry) => entry.id));
