@@ -5,6 +5,7 @@ import {
   timePeriodHasNext,
   timePeriodRange,
   timePeriodStep,
+  timeRangeDay,
   timeStartEffective,
   timeWeekStart,
   type TimePeriod,
@@ -205,5 +206,44 @@ describe('timePeriodHasNext', () => {
   it('is false for the current period and for a future one, such as after the clock is set back', () => {
     expect(timePeriodHasNext(timePeriodRange('week', now, 'sunday'), now)).toBe(false);
     expect(timePeriodHasNext(timePeriodRange('week', at('2026-07-01T12:00:00-06:00'), 'sunday'), now)).toBe(false);
+  });
+});
+
+describe('timeRangeDay', () => {
+  const now = at('2026-06-10T15:00:00-06:00');
+  const week = timePeriodRange('week', now, 'sunday');
+
+  it('gives the local day a start falls on when it is inside the range', () => {
+    expect(timeRangeDay(at('2026-06-09T23:50:00-06:00'), week, now)).toBe(at('2026-06-09T00:00:00-06:00'));
+    expect(timeRangeDay(at('2026-06-10T00:00:00-06:00'), week, now)).toBe(at('2026-06-10T00:00:00-06:00'));
+  });
+
+  it('is half-open: in at the start, out a millisecond before it, out at the end', () => {
+    const later = week.end + 3_600_000;
+    expect(timeRangeDay(week.start, week, later)).toBe(week.start);
+    expect(timeRangeDay(week.start - 1, week, later)).toBeUndefined();
+    expect(timeRangeDay(week.end, week, later)).toBeUndefined();
+  });
+
+  it('puts a start dated after the clock on today in the current range', () => {
+    expect(timeRangeDay(at('2026-06-20T09:00:00-06:00'), week, now)).toBe(at('2026-06-10T00:00:00-06:00'));
+  });
+
+  it('keeps a start dated after the clock out of a past range, whatever now the caller passes', () => {
+    const pastWeek = timePeriodRange('week', at('2026-06-01T12:00:00-06:00'), 'sunday');
+    expect(timeRangeDay(at('2026-06-20T09:00:00-06:00'), pastWeek, now)).toBeUndefined();
+  });
+
+  it('keeps everything out of a range that has not begun', () => {
+    const nextWeek = timePeriodRange('week', at('2026-06-17T12:00:00-06:00'), 'sunday');
+    expect(timeRangeDay(at('2026-06-20T09:00:00-06:00'), nextWeek, now)).toBeUndefined();
+  });
+
+  it('assigns both instants of the repeated hour on the 25-hour day to the same day', () => {
+    const fallDay = timePeriodRange('day', at('2026-11-01T12:00:00-07:00'), 'sunday');
+    const later = at('2026-11-05T12:00:00-07:00');
+    const start = at('2026-11-01T00:00:00-06:00');
+    expect(timeRangeDay(at('2026-11-01T01:30:00-06:00'), fallDay, later)).toBe(start);
+    expect(timeRangeDay(at('2026-11-01T01:30:00-07:00'), fallDay, later)).toBe(start);
   });
 });

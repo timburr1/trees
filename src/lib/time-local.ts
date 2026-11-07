@@ -67,6 +67,15 @@ export function timePeriodHasNext(range: TimeRange, now: number): boolean {
   return range.end <= now;
 }
 
+/**
+ * The local day a session started on, if that day is inside `range`. This is the one rule the Forest and Stats share, so they cannot disagree.
+ * A start dated after `now` counts as `now`, so the session stays in the current period; it never lands in a past one.
+ */
+export function timeRangeDay(startedAt: number, range: TimeRange, now: number): number | undefined {
+  const effective = timeStartEffective(startedAt, now);
+  return effective >= range.start && effective < range.end ? timeDayStart(effective) : undefined;
+}
+
 /** A start dated after the clock (it was set forward once) counts as starting now, so the session stays in the current period. */
 export function timeStartEffective(startedAt: number, now: number): number {
   return Math.min(startedAt, now);

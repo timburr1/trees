@@ -49,6 +49,12 @@ describe('forestGroup', () => {
     expect(ids(forestGroup(sessions, weekRange, now))).toEqual([['wed'], ['tue'], ['mon-late', 'mon-early-but-later-in-array']]);
   });
 
+  it('keeps a future-dated session out of a past period without the caller capping now', () => {
+    const future = session('future', '2026-06-20T09:00:00-06:00');
+    const pastWeek = timePeriodRange('week', at('2026-06-01T12:00:00-06:00'), 'sunday');
+    expect(forestGroup([future], pastWeek, now)).toEqual([]);
+  });
+
   it('buckets a future-dated session as if it started now', () => {
     const future = session('future', '2026-06-20T09:00:00-06:00');
     const days = forestGroup([future], dayRange, now);
