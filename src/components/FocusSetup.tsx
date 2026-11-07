@@ -6,6 +6,7 @@ import { tagChosenEffective, tagsActive } from '../lib/tag-edit.ts';
 import type { AppState, StoreApp } from '../lib/store-app.ts';
 import { chimeUnlock } from '../platform/chime.ts';
 import { idAvailable, idNew } from '../platform/id.ts';
+import { InstallNote } from './InstallNote.tsx';
 import { TreeSprite } from './TreeSprite.tsx';
 
 const MINUTE_MS = 60_000;
@@ -140,6 +141,7 @@ export function FocusSetup({
         />
         <span>Relaxed: leaving the page does not kill the tree</span>
       </label>
+      <InstallNote where="focus" sessionCount={state.data.sessions.length} />
       <button type="button" disabled={!canStart} className="rounded bg-accent px-5 py-2 text-accent-ink disabled:opacity-50" onClick={onStart}>
         Start
       </button>

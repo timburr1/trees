@@ -6,6 +6,7 @@ import { storageLoadEmpty } from '../lib/storage-load.ts';
 import type { StoreApp } from '../lib/store-app.ts';
 import type { FileSave } from '../platform/file-save.ts';
 import { CorruptRaw } from './CorruptRaw.tsx';
+import { InstallNote } from './InstallNote.tsx';
 
 function dateStamp(ms: number): string {
   const date = new Date(ms);
@@ -17,6 +18,7 @@ function dateStamp(ms: number): string {
 export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: FileSave }) {
   const guard = useStore(store, (state) => state.guard);
   const running = useStore(store, (state) => state.data.active !== undefined && !state.sessionsBlocked);
+  const sessionCount = useStore(store, (state) => state.data.sessions.length);
   const lastExportedAt = useStore(store, (state) => state.data.ui.lastExportedAt);
   const [pending, setPending] = useState<BackupParsed | undefined>(undefined);
   const [resetting, setResetting] = useState(false);
@@ -84,6 +86,7 @@ export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: F
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">Backup</h2>
+      <InstallNote where="settings" sessionCount={sessionCount} />
       {unreadable.map((slice) => (
         <CorruptRaw key={slice} slice={slice} raw={guard.corrupt[slice] ?? ''} onCopyFailed={(text) => setMessage(text)} />
       ))}

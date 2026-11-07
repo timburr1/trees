@@ -179,7 +179,17 @@ UI is not unit-tested; this is the only coverage.
 - [ ] Leave a tab open and hidden past an hour, deploy a new build, then show the tab: the prompt appears without a reload.
 - [ ] Open two tabs with a ready update, apply it in one, and note that the other reloads (design section 4 names this).
 
-## Not verifiable until later steps
+## Install notes (iOS)
 
-- Wake Lock behavior in an installed iOS PWA (step 10).
-- Install prompt, offline, service worker (step 10).
+- [ ] Safari, empty forest: Focus shows the add-to-Home-Screen note above Start, and Start still works. Settings Backup shows no note.
+- [ ] Installed app, empty forest: Focus shows the bring-data note, and Settings Backup shows no note.
+- [ ] Safari, with at least one session: Focus shows no note, and Settings Backup says the installed app starts empty.
+- [ ] Installed app, with a session: no note anywhere.
+- [ ] iPadOS Safari (desktop-class user agent): the same notes as on iPhone.
+- [ ] Desktop Chrome and Android: no install note anywhere.
+- [ ] Installed iOS app: Export opens the share sheet and the saved file imports in the browser version; desktop and Android installed apps: Export downloads a file instead.
+
+## Offline and installed-device checks
+
+- [ ] After one online load, switch the network off and reload: the app opens and a session can start.
+- [ ] Installed iOS app: Wake Lock keeps the screen on during a session, and the chime plays. Note the result; design section 3 lists both as unverified.

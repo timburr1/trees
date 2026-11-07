@@ -58,7 +58,7 @@ These shape the design more than anything else.
 3. **No push when closed.** Without a server, a suspended PWA cannot notify you. The timer is computed from timestamps, so the result is correct when you return, but the alert arrives late. Notifications are cut from the prototype: in strict mode a backgrounded tab is already a dead tree, so a notification only helps relaxed mode, and it costs a lot (`new Notification()` throws on Android Chrome and needs `registration.showNotification`; iOS needs an installed PWA and a user gesture). A chime plays on completion. The `AudioContext` is created or resumed inside the Start click handler, or autoplay policy blocks it.
 4. **Timers lie in background tabs.** Browsers throttle timers in hidden tabs (about once a second, and about once a minute under intensive throttling) and suspend them on mobile. Never count ticks. Store `startedAt` and compute from timestamps.
 5. **Storage can vanish.** Safari deletes site storage after about 7 days of Safari use without interaction with the site unless the site is installed to the home screen. Other browsers evict under disk pressure unless storage is persistent. Mitigation: call `navigator.storage.persist()` once, and make export one tap (section 6). We do not promise in the UI that persistence protects against Safari's cap; that is unverified.
-6. **Safari and the installed app have separate storage on iOS.** A forest built in Safari is not visible in the home-screen app. So the install prompt comes **before the first session**, and moving data between the two goes through export and import with explicit copy.
+6. **Safari and the installed app have separate storage on iOS.** A forest built in Safari is not visible in the home-screen app. So the install prompt comes **before the first session**, and moving data between the two goes through export and import with explicit copy. The notes are text only and decided by `installNote(env, sessionCount)`; "browser" is used instead of "Safari" because other iOS browsers keep separate storage too (unverified on a current device). There is no install button, since iOS has no install API.
 7. **Screen lock counts as leaving**, since it hides the page. The Wake Lock API keeps the screen on while a session runs, at some battery cost. It does not keep a backgrounded page alive, and the lock is released whenever the page hides, so the app re-acquires it on becoming visible and listens for the lock's `release` event. Wake Lock in iOS home-screen apps has been unreliable on older iOS versions; **verify on a real device** before promising it.
 
 ## 4. Stack
@@ -352,11 +352,11 @@ Five screens in a bottom tab bar (a side rail on desktop is not built; the bar s
 
 | Screen | Contents |
 | --- | --- |
-| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, a tag picker once a tag exists, and coins earned on the result. |
+| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. An install note on iOS (section 3.6): in the browser with no sessions it says to add the app to the Home Screen first; in the installed app with no sessions it says how to bring data from the browser. Neither blocks Start. Shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, a tag picker once a tag exists, and coins earned on the result. |
 | Forest | Section 8.3. |
 | Stats | Period switch, totals, per-day table, per-tag table (once a tag is used), streaks. |
 | Shop | Species grid with cost and owned state, coin balance. |
-| Settings | Strictness, default duration, sound (read when a session finishes), week start, tag management (create, archive; names are NFC-normalized and unique across archived tags too), export, import, reset. |
+| Settings | Strictness, default duration, sound (read when a session finishes), week start, tag management (create, archive; names are NFC-normalized and unique across archived tags too), export, import, reset. In an iOS browser with sessions, the Backup section says the installed app starts empty and how to move the forest over. |
 
 A `StatusBanner` shows storage and platform warnings (section 6). Component names are category first: `ForestDay`, `ForestTile`, `StatsBars`, `StatsSummary`, `TreeSprite`, `TimerDial`, `TimerCountdown`, `ShopCard`.
 
@@ -395,6 +395,8 @@ src/
     storage-slices.ts           slice names and write order, storage keys, StorageLike, StorageGuard
     storage-load.ts             storageLoad(storage): data, problems, guard; hydration rules
     storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes; storageReplace: write everything, or put everything back
+    install-env.ts              installEnvParse: iOS and standalone from user agent, platform, touch, display mode
+    install-note.ts             installNote: which install guidance to show
     tag-edit.ts                 tagCreate, tagArchive, tagsActive, tagChosenEffective
     backup.ts                   backupSerialize, backupParse (import is storageLoad over the file)
     errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid, ErrorStorageRollback
@@ -489,7 +491,7 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 7. Coins, purchases, Shop.
 8. Stats (without the per-tag breakdown).
 9. Settings, tag management, `statsTag` and its breakdown, backup export and import (done).
-10. PWA manifest, icons, service worker, SWA and CSP config.
+10. PWA manifest, icons, service worker, update prompt, install notes, SWA and CSP config (done).
 
 **Before step 4 finishes, test strict mode on a real phone** (open question 1).
 
