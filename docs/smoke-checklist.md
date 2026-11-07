@@ -80,6 +80,23 @@ UI is not unit-tested; this is the only coverage. Seed sessions through DevTools
 - [ ] Nav at 320 px and 1280 px: the last tile row and Give Up are never covered. On a phone with a notch, the bar clears the home indicator.
 - [ ] Corrupt `trees:v1:sessions`: the blocked screen appears and no nav does.
 
+## Stats
+
+UI is not unit-tested; this is the only coverage. Seed `trees:v1:sessions` in DevTools across several days (include a failed one, a stopwatch of a few seconds, and one that crosses midnight).
+
+- [ ] Week and Month list one row per day up to today, newest last, each with the time and the completed and failed counts as text. Day shows only the summary. Days after today are absent.
+- [ ] Previous and Next step by one period. Next is disabled on the current period, and on a future one after you set the system clock back.
+- [ ] Session counts match the Forest tiles for the same period, and minutes match within rounding.
+- [ ] A session that crossed midnight is on its start day in both screens.
+- [ ] Bars: the busiest day is longest, a nonzero day is never invisible, and the row text carries the same information. Readable in light and dark.
+- [ ] Streak: current and longest sit above the period controls and do not change while browsing other periods. With a session today, current includes today; with none yet today, a run ending yesterday still counts.
+- [ ] A day with only a stopwatch of a few seconds does not extend the streak. Two 6-minute sessions on one day do.
+- [ ] Monday week start via `settings.weekStart`: the week begins on Monday.
+- [ ] Empty period: zero totals, and rows of 0 min in Week and Month.
+- [ ] Four-tab nav at 320 px and 1280 px stays on one line. At browser text size 200% the tabs wrap to a second row and none clips or overflows. Focus's mark still shows with a running session.
+- [ ] During a running session, the Stats screen does not re-render each second (React Profiler).
+- [ ] Forest after the shared-navigation change: switching periods, previous and next, and the selected tile clearing on navigation all behave as before.
+
 ## Shop and coins
 
 UI is not unit-tested; this is the only coverage. Seed `trees:v1:sessions` and `trees:v1:purchases` in DevTools to reach a price. A 25-minute completed countdown earns 5 coins, and Pine costs 25.

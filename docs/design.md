@@ -77,7 +77,7 @@ Same tooling as [mello](https://github.com/timburr1/mello), so conventions and C
 | Hosting | Azure Static Web Apps, Free plan, GitHub Actions |
 | State | A small store (section 5.3) exposed through context. No Redux, no router library. |
 | Persistence | `localStorage`, validated on read |
-| Charts | Hand-rolled SVG |
+| Charts | A table with CSS bars (SVG is only for trees) |
 
 Versions: scaffold with current releases and pin whatever resolves. Mello has no formatter, but CLAUDE.md calls one non-negotiable, so this project adds Prettier at print width 160 alongside ESLint. Tree art is procedural SVG driven by species data (section 8), so there are no image assets to license or load.
 
@@ -316,15 +316,17 @@ A stopwatch can be stopped at 0:03 and counts as completed, so its result shows 
 
 One `ForestTile` per finished session, grouped under day headings (newest day first), with a period switch (day, week, month) and previous and next buttons. The period is a half-open range `[start, end)` from `timePeriodRange`; previous is the range containing `start - 1`, next the one containing `end`, and next is disabled on the current period. With no navigation the view follows the clock, so "this week" rolls over without a click. Within a day, trees keep array (finish) order, not `startedAt` order, so a clock change never reshuffles the forest. A tile is a button; it opens a details panel directly under its day (start time, focused minutes, outcome, and the tag if it still resolves) and moves focus to the panel's heading. Isometric land, terrain, and animation beyond growth are out of scope. The art is the weakest part of the prototype and the easiest to improve without touching logic.
 
+Forest and Stats share one `usePeriodView` hook and `PeriodNav` component, so the period rules (following the clock, stepping, Next disabled unless the next period has begun) live in one place.
+
 `AppReady` selects only what the frame needs (status, blocked state, and two booleans for the nav). The Focus screen selects the whole state itself because it changes every second; the Forest selects `sessions`, `tags`, and `weekStart` and re-renders once a minute. Tiles and day groups are `memo`'d, so selecting a tile redraws two groups at most; the minute tick regroups the current period (new group objects), which redraws its day sections but not their tiles. There is no virtualization (a month is a few thousand SVG nodes). A corrupt `sessions` slice hides the nav along with every screen, so an empty Forest never reads as lost data.
 
 ## 9. Stats
 
 Pure functions over `SessionFinished[]`, in `stats-*.ts`:
 
-- `statsBucket(sessions, granularity, range)`: focused minutes and completed or failed counts per day, week, or month.
-- `statsTag(sessions, range)`: minutes per tag.
-- `statsStreak(sessions, today)`: current and longest runs of consecutive days with a completed session. **The current streak counts a run ending today or yesterday**, or it reads 0 every morning until the first session.
+- `statsBucket(sessions, range, now)`: one bucket per local day in the range (`{ dayStart, focusedMs, completed, failed }`); a week is seven and a month 28 to 31, so there is no granularity argument. `statsTotal` sums them. Both it and `forestGroup` use `timeRangeDay` for which day a session falls on, so the screens cannot disagree; `now` only needs to be real, and the screens pass `Math.min(now, range.end)` so a past period's memoized result does not change with the clock tick.
+- `statsTag(sessions, range)`: minutes per tag. Built in step 9 with the tag picker; until then every session is untagged and the breakdown would be one row.
+- `statsStreak(sessions, today)` (`today` is a day start): current and longest runs of consecutive days that each have at least `timerMinMs` of completed focus, so a stopwatch stopped after seconds cannot keep a streak alive (open question 5 stays open for the session rules). **The current streak counts a run ending today or yesterday**, or it reads 0 every morning until the first session. A session dated after today counts as today, so it can bridge a gap today and stop bridging it tomorrow (a test pins this). Streaks cover the whole history, so the screen shows them apart from the period summary.
 
 Only completed sessions count as focused time. "Today" is derived from an injected clock at render, and the Forest and Stats screens re-render once a minute, so a tab left open overnight rolls over.
 
@@ -332,13 +334,13 @@ Only completed sessions count as focused time. "Today" is derived from an inject
 
 ## 10. UI
 
-Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6 and 7 ship Focus, Forest, and Shop. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
+Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6, 7, and 8 ship Focus, Forest, Shop, and Stats. The tabs never shrink below their text (`min-w-fit`) and wrap to a second row when text is large, so they cannot overflow; four fit one row at 320 px and normal text size, and step 9's Settings tab needs a short label to keep it that way. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
 
 | Screen | Contents |
 | --- | --- |
 | Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Now shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, and coins earned on the result. Still missing: the tag picker (step 9). |
 | Forest | Section 8.3. |
-| Stats | Period switch, totals, per-tag breakdown, streaks. |
+| Stats | Period switch, totals, per-day table, streaks. (The per-tag breakdown arrives in step 9.) |
 | Shop | Species grid with cost and owned state, coin balance. |
 | Settings | Strictness, default duration, sound, week start, tag management, export, import, reset. |
 
@@ -369,10 +371,11 @@ src/
     session-growth.ts           sessionProgress, growthFinished, sessionFinishedActiveMs
     tree-geometry.ts            treeGeometry: a tree as flat shapes in a fixed viewBox
     tree-label.ts               accessible name of a tree
-    stats-bucket.ts
-    stats-tag.ts
-    stats-streak.ts
-    time-local.ts               local date-part helpers, TimePeriod, timePeriodRange (half-open)
+    stats-bucket.ts             statsBucket, statsTotal
+    stats-tag.ts                (step 9)
+    stats-streak.ts             statsStreak
+    duration-format.ts          durationFormat: "2 h 35 min"
+    time-local.ts               local date-part helpers, TimePeriod, timePeriodRange (half-open), timeRangeDay (the day-assignment rule Forest and Stats share)
     forest-group.ts             forestGroup: sessions in a range, grouped by start day
     storage-coerce.ts           validators; the trust boundary
     storage-slices.ts           slice names and write order, storage keys, StorageLike, StorageGuard
@@ -391,8 +394,9 @@ src/
     useApp.ts                   controller status via useSyncExternalStore
     useStore.ts                 select from the store
     useClock.ts                 render clock
+    usePeriodView.ts            period, range, and navigation shared by Forest and Stats; owns the minute clock
     useSessionRunner.ts         section 5.5
-  components/                   section 10
+  components/                   section 10 (PeriodNav is the switch and previous/next shared by Forest and Stats)
 public/
   favicon.svg
   icons/                        192, 512, maskable
@@ -446,7 +450,7 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | `growthStage` | Monotonic; endpoints; clamps out-of-range input; stopwatch progress caps at fully grown. |
 | Pause and stopwatch | Pause freezes the clock and ignores absence; resume extends `endsAt` by the pause length; a second pause is rejected; a pause past `sessionPauseMaxMs` auto-resumes and then fails a strict session whose user stayed away; a stopwatch completes on stop or at `timerMaxMs` of active time, and still fails on absence; stopwatch coins use elapsed active time. |
 | `time-local`, `forestGroup` | Both DST transitions in `America/Denver` with expected values as ISO strings with explicit offsets; 23:30 and 00:30; the repeated 01:30; Sunday and Monday week starts across month and year boundaries; ranges tile with no gap or overlap; half-open boundaries; start-day grouping; future-dated sessions; array order within a day. |
-| `statsBucket`, `statsStreak` | Both DST transitions in `America/Denver`; 23:30 and 00:30 local sessions; week start; empty input; a streak with no session yet today still counts through yesterday. A guard test fails if `TZ` stops being pinned. |
+| `statsBucket`, `statsStreak` | Both DST transitions in `America/Denver` (23- and 25-hour days, runs across both); 23:30 and 00:30 local sessions; a session crossing a month boundary stays in its start month; empty input; the minimum-focus rule at its boundary; a streak with no session yet today still counts through yesterday; a future-dated session. A guard test fails if `TZ` stops being pinned. |
 | `storageCoerce` | Valid, missing fields, wrong types, hand-edited garbage; one bad record rejects only that record; each failure yields a specific error. |
 | Backup | Round-trip; invalid files rejected with a specific error; import never partially applies; `lastAcknowledgedId` survives a reload. |
 | Catalog | Unique ids, nonnegative costs, exactly one free species, valid hex colors for every stage. |
@@ -465,8 +469,8 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 5. Species catalog, growth stages, `TreeSprite`.
 6. Forest screen.
 7. Coins, purchases, Shop.
-8. Stats.
-9. Settings, tag management, backup export and import.
+8. Stats (without the per-tag breakdown).
+9. Settings, tag management, `statsTag` and its breakdown, backup export and import.
 10. PWA manifest, icons, service worker, SWA and CSP config.
 
 **Before step 4 finishes, test strict mode on a real phone** (open question 1).
@@ -480,7 +484,7 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 | Safari evicts storage; iOS Safari and the installed app are separate stores | User loses or never sees their forest | Install prompt before the first session; one-tap export; `lastExportedAt` shown in Settings |
 | Two tabs corrupt data | Resurrected or duplicated sessions | Owner lock, dedupe by id, write ordering (sections 5.3, 5.4) |
 | Absence erased by event ordering | A tree survives sleep it should not | Single `sessionTouch` action, resolve first (section 5.2) |
-| Clock changes (manual edit, NTP, DST, travel) | Wrong elapsed time | Epoch ms is immune to DST and zone; a forward jump over the grace period while visible fails a strict session, which is accepted; day bucketing uses the zone at read time, so travel reshuffles past days, also accepted |
+| Clock changes (manual edit, NTP, DST, travel) | Wrong elapsed time | Epoch ms is immune to DST and zone; a forward jump over the grace period while visible fails a strict session, which is accepted; day bucketing uses the zone at read time, so travel reshuffles past days and can break or extend a streak, also accepted |
 | Procedural SVG trees look flat | The app feels cheap | Isolated behind `TreeSprite` and species data |
 
 ## 17. Decisions and open questions

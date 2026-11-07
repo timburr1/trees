@@ -3,6 +3,7 @@ import { FocusScreen } from './components/FocusScreen.tsx';
 import type { FocusSetupChoice } from './components/FocusSetup.tsx';
 import { ForestScreen } from './components/ForestScreen.tsx';
 import { ShopScreen } from './components/ShopScreen.tsx';
+import { StatsScreen } from './components/StatsScreen.tsx';
 import { NavBar, type FocusIndicator, type Screen } from './components/NavBar.tsx';
 import { OwnerBlocked } from './components/OwnerBlocked.tsx';
 import { SessionsBlocked } from './components/SessionsBlocked.tsx';
@@ -32,6 +33,8 @@ function ScreenView({
       return <FocusScreen store={store} choice={choice} onChoiceChange={onChoiceChange} />;
     case 'forest':
       return <ForestScreen store={store} />;
+    case 'stats':
+      return <StatsScreen store={store} />;
     case 'shop':
       return <ShopScreen store={store} />;
     default:
