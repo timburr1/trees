@@ -267,7 +267,7 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 
 **Replacing (`dataReplace`, `storageReplace`).** Import and Reset share one store method, `dataReplace(loaded, kind)`. It refuses while a session runs, except when the history is unreadable (a stored session beside it can never finish, and replacing is the way out; Import and Reset also appear on that blocked screen). It writes every slice over unreadable text, because the user confirmed. If a write throws, every key is removed first (which frees space) and then put back as it was, so a failed import never leaves a mix. If even that fails, `ErrorStorageRollback` stops the store with a blocking entry. Disk may then be incomplete, but the page still holds the previous data, so the entry tells the user to export a backup from Settings (Export reads the in-memory state), then reload and import it. After a replace the load-derived status entries (exactly the codes the previous load produced) are rebuilt from the new data and only their dismissals are forgotten. `settingsSet` and `uiExported` do nothing while their slice is unreadable, as tag and purchase changes do. An import acknowledges its last session, so it does not appear as a waiting result, and keeps `lastExportedAt`; Reset forgets it.
 
-**Saving the file.** A Blob download everywhere except an installed standalone app, where iOS opens a viewer or fails on one; there `navigator.share({ files })` is used. Desktop browsers can share files too, but the share sheet is the wrong tool for them. **Verify the installed-app path on a real device.**
+**Saving the file.** A Blob download everywhere except an installed iOS app, where iOS opens a viewer or fails on one; there `navigator.share({ files })` is used. Desktop browsers can share files too, but the share sheet is the wrong tool for them. **Verify the installed-app path on a real device.**
 
 ## 7. Economy
 
@@ -392,7 +392,8 @@ src/
     errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid, ErrorStorageRollback
   platform/                     thin browser wrappers
     id.ts                       crypto.randomUUID, secure context only
-    file-save.ts                fileSave: Blob download, or the share sheet in an installed app
+    file-save.ts                fileSave: Blob download, or the share sheet in an installed iOS app
+    install-state.ts            installStateGet: reads the browser, then installEnvParse
     owner-lock.ts               ownerLockAcquire, ownerLockSteal (section 5.4)
     app-controller.ts           owner lock, store lifetime, bfcache, storage-unavailable (section 5.4)
     wake-lock.ts                wakeLockMake (section 5.5)

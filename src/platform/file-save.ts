@@ -1,13 +1,11 @@
+import { installStateGet } from './install-state.ts';
+
 export type FileSaveResult = 'done' | 'cancelled';
 
 export type FileSave = (name: string, text: string) => Promise<FileSaveResult>;
 
 // The Blob URL must outlive the click: Firefox and older Safari start the download after it returns.
 const REVOKE_DELAY_MS = 10_000;
-
-function standalone(): boolean {
-  return window.matchMedia('(display-mode: standalone)').matches || Reflect.get(navigator, 'standalone') === true;
-}
 
 function downloadStart(file: File): void {
   const url = URL.createObjectURL(file);
@@ -21,12 +19,13 @@ function downloadStart(file: File): void {
 }
 
 /**
- * Hands the user a JSON file. A download link everywhere except an installed app, where iOS opens a viewer or fails on one,
- * so the share sheet is used there. Desktop browsers can share files too, but the sheet is the wrong tool for them.
+ * Hands the user a JSON file. A download link everywhere except an installed iOS app, where iOS opens a viewer or fails on one,
+ * so the share sheet is used there. Desktop browsers, installed or not, can share files too, but the sheet is the wrong tool for them.
  */
 export async function fileSave(name: string, text: string, log: (message: string) => void): Promise<FileSaveResult> {
   const file = new File([text], name, { type: 'application/json' });
-  if (standalone() && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+  const { ios, standalone } = installStateGet();
+  if (ios && standalone && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
       return 'done';
