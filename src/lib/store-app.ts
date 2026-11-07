@@ -2,6 +2,7 @@ import { ErrorStorageQuota } from './errors.ts';
 import { purchaseBuy, type PurchaseRequest, type PurchaseResult } from './purchase-buy.ts';
 import { sessionReduce, type SessionAction, type SessionReduceResult } from './session-reduce.ts';
 import { statusFromLoad } from './status-load.ts';
+import { tagArchive, tagCreate, type TagArchiveRequest, type TagCreateRequest, type TagResult } from './tag-edit.ts';
 import { storageLoad } from './storage-load.ts';
 import { storageSave } from './storage-save.ts';
 import type { StorageGuard, StorageLike } from './storage-slices.ts';
@@ -48,6 +49,9 @@ export type StoreApp = {
   readonly sessionDispatch: (action: SessionAction) => SessionReduceResult | undefined;
   /** Returns undefined when the store ignored the request: see `selectPurchasesBlock`, or this tab lost ownership. */
   readonly purchaseBuy: (request: PurchaseRequest) => PurchaseResult | undefined;
+  /** Returns undefined when the store ignored the request: see `selectTagsBlock`, or this tab lost ownership. */
+  readonly tagCreate: (request: TagCreateRequest) => TagResult | undefined;
+  readonly tagArchive: (request: TagArchiveRequest) => TagResult | undefined;
   readonly settingsSet: (settings: Settings) => void;
   readonly uiAcknowledge: (sessionId: string) => void;
   readonly statusSet: (entry: StatusInput) => void;
@@ -78,6 +82,13 @@ export function selectPurchasesBlock(state: AppState): PurchasesBlock | undefine
     return 'purchases-rejected';
   }
   return undefined;
+}
+
+/** Why tag changes are off, if they are. An unreadable `tags` slice is never written, so a change would look saved and vanish on reload. */
+export type TagsBlock = 'tags-unreadable';
+
+export function selectTagsBlock(state: AppState): TagsBlock | undefined {
+  return state.guard.corrupt.tags === undefined ? undefined : 'tags-unreadable';
 }
 
 const saveCodes = ['save-quota', 'save-failed'];
@@ -182,6 +193,19 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     return result;
   }
 
+  function tagCommit(result: TagResult): TagResult | undefined {
+    if (dead || selectTagsBlock(state) !== undefined) {
+      return undefined;
+    }
+    if (result.rejection !== undefined) {
+      log(`tag change rejected: ${result.rejection}`);
+    }
+    if (result.state !== state.data && !commit(result.state)) {
+      return undefined;
+    }
+    return result;
+  }
+
   // Settle once before anyone reads the state, so a session that ended while the page was closed never renders as running.
   sessionDispatch({ kind: 'sessionTouch', now: now(), seen: seen() });
 
@@ -207,6 +231,8 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
       }
       return result;
     },
+    tagCreate: (request) => tagCommit(tagCreate(state.data, request)),
+    tagArchive: (request) => tagCommit(tagArchive(state.data, request)),
     settingsSet: (settings) => {
       commit({ ...state.data, settings });
     },

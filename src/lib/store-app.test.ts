@@ -398,6 +398,45 @@ describe('storeAppMake: purchaseBuy', () => {
   });
 });
 
+describe('storeAppMake: tags', () => {
+  const tagsKey = storageKey('tags');
+  const create = (store: StoreApp, name = 'Writing', id = 't1') => store.tagCreate({ id, name, now: t0 });
+
+  it('creates and persists a tag, and archives it', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    expect(create(store)?.rejection).toBeUndefined();
+    expect(storage.getItem(tagsKey)).toContain('Writing');
+    expect(store.tagArchive({ id: 't1', now: t0 })?.rejection).toBeUndefined();
+    expect(store.getState().data.tags[0]?.archivedAt).toBe(t0);
+    expect(storage.log.every((entry) => entry === `set:${tagsKey}`)).toBe(true);
+  });
+
+  it('is ignored, with nothing written, while the tags slice is unreadable', () => {
+    const { store, storage } = harnessMake(persistedMake(), { [tagsKey]: '{nope' });
+    expect(create(store)).toBeUndefined();
+    expect(store.tagArchive({ id: 't1', now: t0 })).toBeUndefined();
+    expect(storage.log).toEqual([]);
+    expect(storage.getItem(tagsKey)).toBe('{nope');
+  });
+
+  it('still works when a tag record was rejected, and keeps that record on disk', () => {
+    const { store, storage } = harnessMake(persistedMake(), { [tagsKey]: JSON.stringify([{ id: 'bad' }]) });
+    expect(store.getState().guard.rejected.tags).toHaveLength(1);
+    expect(create(store)?.rejection).toBeUndefined();
+    const saved: unknown = JSON.parse(storage.getItem(tagsKey) ?? '[]');
+    expect(saved).toHaveLength(2);
+    expect(JSON.stringify(saved)).toContain('"id":"bad"');
+  });
+
+  it('is ignored once another tab owns the data', () => {
+    const { store, storage, fenced } = harnessMake(persistedMake());
+    storage.data.set(ownerKey, 'tab-b');
+    expect(create(store)).toBeUndefined();
+    expect(fenced.count).toBe(1);
+    expect(storage.log).toEqual([]);
+  });
+});
+
 describe('storeAppMake: owner fence', () => {
   it('refuses a write after another tab took the token, calls onFenced, and goes dead', () => {
     const { store, storage, fenced } = harnessMake(running());
