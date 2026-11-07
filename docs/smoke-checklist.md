@@ -163,6 +163,13 @@ UI is not unit-tested; this is the only coverage.
 - [ ] Open the app over plain HTTP from another device. Start is disabled with an explanation, and a warning explains the missing tab protection.
 - [ ] Move the system clock forward one minute while a session runs and visible. Document the effect (design section 5.2 lists clock changes as an accepted risk).
 
+## Install and offline
+
+- [ ] Chrome DevTools, Application, Manifest: no errors, name "Trees", three icons load, and the page is installable. Maskable preview shows the tree inside the safe zone.
+- [ ] `npm run build` then `npm run preview`: no CSP violation in the console, and `/sw.js` and `/manifest.webmanifest` load as JavaScript and JSON, not as the app page.
+- [ ] Deployed site: `/manifest.webmanifest` has a JSON content type, `/sw.js` is JavaScript, and a request for a missing file such as `/icons/none.png` returns 404, not the app. Note the manifest's content type; add a `mimeTypes` entry for `.webmanifest` if it is wrong.
+- [ ] iOS: Add to Home Screen shows the tree icon and the name "Trees", and the app opens without browser chrome.
+
 ## Not verifiable until later steps
 
 - Wake Lock behavior in an installed iOS PWA (step 10).

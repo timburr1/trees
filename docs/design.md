@@ -83,6 +83,10 @@ Versions: scaffold with current releases and pin whatever resolves. Mello has no
 
 `registerType: 'prompt'` matters: with `autoUpdate`, a new service worker reloads the page, and a reload landing in a hidden tab can fall outside the grace window. Updates apply only while no session is running.
 
+The worker precaches the built app shell (js, css, html, svg, png, the manifest) and nothing else; the forest is in `localStorage`, so there is no data to cache. Navigation falls back to the cached `index.html` except for paths that end in a file extension, in step with the SWA exclusions, so opening a file URL offline does not show the app. The page registers the worker through `virtual:pwa-register` (`injectRegister: false`), so `index.html` has no inline script. The manifest is generated from `vite.config.ts`: name "Trees", `display: standalone`, theme and background `#0f172a`, icons at 192 and 512 (`any`) and 512 (`maskable`). `index.html` adds an `apple-touch-icon` and a light and a dark `theme-color` matching the surface tokens.
+
+The PNG icons are generated once and committed, so CI's `npm ci` needs no image tooling. `public/favicon.svg` is the source for `icon-192.png` and `icon-512.png`; `public/icons/maskable.svg` (the same glyph on a full-bleed square, since the tree's farthest point sits inside the maskable safe circle) is the source for `maskable-512.png` and `apple-touch-icon.png` (180 px; iOS rounds the corners itself). To regenerate, install `sharp` in a directory outside the repo and render each SVG with `sharp(svg, { density: 1200 }).resize(size, size).png()`.
+
 ## 5. Session logic (the core)
 
 ### 5.1 Model
@@ -420,8 +424,8 @@ Dependencies point one way: `components → hooks → lib`, and `hooks → platf
 Azure Static Web Apps, Free plan, deployed from GitHub Actions on every push to `main`, with preview environments for PRs. The free plan limits how many preview environments can exist at once (I believe three; check), so close PRs promptly. There is no `api/` directory in the prototype.
 
 - The workflow runs `npm ci`, lint, test, build, then uploads `dist/`. It mirrors mello's workflow minus the Functions build.
-- `public/staticwebapp.config.json` is copied to `dist/` by Vite. It sets `navigationFallback` to `/index.html`, and its `exclude` list must cover `/manifest.webmanifest`, `/icons/*`, `/favicon.svg`, `sw.js`, and `workbox-*.js` (mello's CLAUDE.md warns about exactly this). It also sets a `Content-Security-Policy` of `default-src 'self'` plus whatever the build proves necessary: register the service worker as a script (`injectRegister: 'script'` or the virtual module), not inline, and add `img-src` exceptions only if some SVG or image uses `data:` or `blob:` URLs. It sets `X-Content-Type-Options` and `Referrer-Policy`. No auth section.
-- The service worker caches the app shell only.
+- `public/staticwebapp.config.json` is copied to `dist/` by Vite. It sets `navigationFallback` to `/index.html`, and its `exclude` list must cover `/manifest.webmanifest`, `/icons/*`, `/favicon.svg`, `/sw.js`, and `/workbox-*.js` (mello's CLAUDE.md warns about exactly this); `src/platform/swa-config.test.ts` fails when a root-level file in `public/` is missing from it. Whether SWA honors `*` in the middle of a file name is not documented, so the deployed site is the check. The `Content-Security-Policy` is `default-src 'self'` with the service worker registered through the virtual module, not inline; `worker-src` and `manifest-src` fall back to `default-src`, and `img-src` needs no exception while no image uses `data:` or `blob:` URLs. It sets `X-Content-Type-Options` and `Referrer-Policy`. No auth section.
+- The service worker caches the app shell only (section 4).
 - Free-plan bandwidth, storage, and domain limits are far above a small static bundle's needs. Check the current numbers before relying on any.
 
 ## 13. Phase 2: sync (not built)
