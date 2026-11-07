@@ -12,7 +12,6 @@ import { StorageUnavailable } from './components/StorageUnavailable.tsx';
 import { useApp } from './hooks/useApp.ts';
 import { useSessionRunner } from './hooks/useSessionRunner.ts';
 import { useStore } from './hooks/useStore.ts';
-import { durationClamp } from './lib/duration-clamp.ts';
 import { speciesStarter } from './lib/species-catalog.ts';
 import { selectResultPending, type StoreApp } from './lib/store-app.ts';
 import type { AppController } from './platform/app-controller.ts';
@@ -50,11 +49,7 @@ function AppReady({ store }: { store: StoreApp }) {
   const running = useStore(store, (state) => state.data.active !== undefined);
   const resultReady = useStore(store, (state) => selectResultPending(state) !== undefined);
   const [screen, setScreen] = useState<Screen>('focus');
-  const [choice, setChoice] = useState<FocusSetupChoice>(() => ({
-    mode: 'countdown',
-    speciesId: speciesStarter.id,
-    durationMs: durationClamp(store.getState().data.settings.defaultDurationMs),
-  }));
+  const [choice, setChoice] = useState<FocusSetupChoice>({ mode: 'countdown', speciesId: speciesStarter.id, durationMs: undefined });
   useSessionRunner(store);
   if (sessionsBlocked) {
     return (

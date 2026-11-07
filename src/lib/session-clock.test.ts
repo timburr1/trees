@@ -22,20 +22,24 @@ describe('chimeDue', () => {
   const completed = sessionFinishedMake({ endedAt: t0, outcome: { kind: 'completed' } });
 
   it('is due for a live completion', () => {
-    expect(chimeDue(completed, t0 + 1_000)).toBe(true);
+    expect(chimeDue(completed, t0 + 1_000, true)).toBe(true);
   });
 
   it('is due for a completion found up to a throttled minute late', () => {
-    expect(chimeDue(completed, t0 + 60_000)).toBe(true);
+    expect(chimeDue(completed, t0 + 60_000, true)).toBe(true);
   });
 
   it('is not due for a stale completion, such as waking from sleep', () => {
-    expect(chimeDue(completed, t0 + 10 * MIN)).toBe(false);
+    expect(chimeDue(completed, t0 + 10 * MIN, true)).toBe(false);
   });
 
   it('is not due for a failure or when nothing finished', () => {
-    expect(chimeDue(sessionFinishedMake({ endedAt: t0, outcome: { kind: 'failed', reason: 'left' } }), t0)).toBe(false);
-    expect(chimeDue(undefined, t0)).toBe(false);
+    expect(chimeDue(sessionFinishedMake({ endedAt: t0, outcome: { kind: 'failed', reason: 'left' } }), t0, true)).toBe(false);
+    expect(chimeDue(undefined, t0, true)).toBe(false);
+  });
+
+  it('is never due when sound is off', () => {
+    expect(chimeDue(completed, t0 + 1_000, false)).toBe(false);
   });
 });
 

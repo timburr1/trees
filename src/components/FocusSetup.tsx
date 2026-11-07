@@ -9,7 +9,8 @@ import { TreeSprite } from './TreeSprite.tsx';
 
 const MINUTE_MS = 60_000;
 
-export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number; readonly speciesId: string };
+/** `durationMs` is `undefined` until the slider moves, so the choice follows the default duration in Settings. */
+export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number | undefined; readonly speciesId: string };
 
 /** The choice lives above this screen so it survives switching to another screen and back. */
 export function FocusSetup({
@@ -24,7 +25,8 @@ export function FocusSetup({
   onChoiceChange: (choice: FocusSetupChoice) => void;
 }) {
   const { settings } = state.data;
-  const { mode, durationMs } = choice;
+  const { mode } = choice;
+  const durationMs = durationClamp(choice.durationMs ?? settings.defaultDurationMs);
   const owned = speciesCatalog.filter((species) => speciesOwned(state.data, species.id));
   // The chosen species is only unowned if the data changed under the screen (an import, later); the starter is always safe.
   const speciesId = owned.some((species) => species.id === choice.speciesId) ? choice.speciesId : speciesStarter.id;
@@ -36,7 +38,7 @@ export function FocusSetup({
       kind: 'sessionStart',
       id: idNew(),
       now: Date.now(),
-      mode: mode === 'countdown' ? { kind: 'countdown', plannedMs: durationClamp(durationMs) } : { kind: 'stopwatch' },
+      mode: mode === 'countdown' ? { kind: 'countdown', plannedMs: durationMs } : { kind: 'stopwatch' },
       tagId: undefined,
       speciesId,
     });

@@ -16,6 +16,6 @@ export function sessionHalfway(active: SessionActive, now: number): boolean {
 }
 
 /** Whether a session that just finished should chime. `finished` is what a runner-dispatched touch returned. */
-export function chimeDue(finished: SessionFinished | undefined, now: number): boolean {
-  return finished?.outcome.kind === 'completed' && now - finished.endedAt < CHIME_LIVE_MS;
+export function chimeDue(finished: SessionFinished | undefined, now: number, soundOn: boolean): boolean {
+  return soundOn && finished?.outcome.kind === 'completed' && now - finished.endedAt < CHIME_LIVE_MS;
 }

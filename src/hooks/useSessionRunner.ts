@@ -24,7 +24,7 @@ export function useSessionRunner(store: StoreApp): void {
     const touch = (seen: boolean) => {
       const now = Date.now();
       const result = store.sessionDispatch({ kind: 'sessionTouch', now, seen });
-      if (chimeDue(result?.finished, now)) {
+      if (chimeDue(result?.finished, now, store.getState().data.settings.soundOn)) {
         chimePlay(warn);
       }
       const raw = store.getState().data.active;
