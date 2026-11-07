@@ -61,6 +61,12 @@ describe('coerceSessionFinished', () => {
     }
   });
 
+  it('accepts pauses that fill the whole span, and rejects pauses longer than it', () => {
+    const session = sessionFinishedMake({ startedAt: 1_000_000, endedAt: 1_600_000, pausedMs: 600_000 });
+    expect(coerceSessionFinished(roundTrip(session))).toEqual(session);
+    expectRejects(coerceSessionFinished, { ...session, pausedMs: 600_001 }, 'pausedMs');
+  });
+
   it.each([
     ['an unknown outcome', { ...sessionFinishedMake(), outcome: { kind: 'abandoned' } }, 'kind'],
     ['a failure with no reason', { ...sessionFinishedMake(), outcome: { kind: 'failed' } }, 'reason'],

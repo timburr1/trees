@@ -125,12 +125,17 @@ export function coerceSessionFinished(raw: unknown): SessionFinished {
   if (endedAt < startedAt) {
     throw new ErrorStorageCorrupt(`${what}: endedAt is before startedAt`);
   }
+  const pausedMs = fieldNonNegative(fields, 'pausedMs', what);
+  // The reducer never records more pause than the span, so more would make active time, coins, and stats negative.
+  if (pausedMs > endedAt - startedAt) {
+    throw new ErrorStorageCorrupt(`${what}.pausedMs: longer than the session`);
+  }
   return {
     id: fieldString(fields, 'id', what),
     startedAt,
     endedAt,
     mode: modeRead(fields, what),
-    pausedMs: fieldNonNegative(fields, 'pausedMs', what),
+    pausedMs,
     tagId: fieldStringOptional(fields, 'tagId', what),
     speciesId: fieldString(fields, 'speciesId', what),
     outcome: outcomeRead(fields, what),
