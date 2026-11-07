@@ -98,6 +98,14 @@ describe('coercePurchase', () => {
   it('rejects a missing speciesId', () => {
     expectRejects(coercePurchase, { ...purchaseMake(), speciesId: undefined }, 'speciesId');
   });
+
+  it('rejects a missing id', () => {
+    expectRejects(coercePurchase, { ...purchaseMake(), id: undefined }, 'id');
+  });
+
+  it('rejects a fractional cost, which would show a fractional balance', () => {
+    expectRejects(coercePurchase, { ...purchaseMake(), cost: 12.5 }, 'cost');
+  });
 });
 
 describe('coerceSettings', () => {

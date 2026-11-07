@@ -11,7 +11,7 @@ import {
   type CoerceListResult,
 } from './storage-coerce.ts';
 import { storageKey, type SliceName, type StorageGuard, type StorageLike } from './storage-slices.ts';
-import type { Persisted, SessionActive, SessionFinished, Settings, UiState } from './types.ts';
+import type { Persisted, Purchase, SessionActive, SessionFinished, Settings, UiState } from './types.ts';
 
 export const settingsDefault: Settings = { strictness: 'strict', defaultDurationMs: timerDefaultMs, soundOn: true, weekStart: 'sunday' };
 const uiDefault: UiState = { lastAcknowledgedId: undefined, lastExportedAt: undefined };
@@ -93,6 +93,20 @@ export function storageLoad(storage: StorageLike): StorageLoadResult {
     sessions.push(session);
   }
 
+  const purchases: Purchase[] = [];
+  for (const purchase of listRead('purchases', coercePurchase)) {
+    const same = purchases.find((existing) => existing.id === purchase.id);
+    if (same === undefined) {
+      purchases.push(purchase);
+      continue;
+    }
+    problems.push({ slice: 'purchases', message: `duplicate purchase id ${purchase.id}` });
+    // An identical copy is safe to drop. One that differs would erase a record on the next save, and its species would look unowned and could be bought twice, so it is kept as rejected.
+    if (same.speciesId !== purchase.speciesId || same.at !== purchase.at || same.cost !== purchase.cost) {
+      rejected.purchases = [...(rejected.purchases ?? []), purchase];
+    }
+  }
+
   // A bad active session costs one session, so it is reported and dropped instead of blocking the app. It stays on disk until a new session replaces it.
   let active: SessionActive | undefined;
   const activeOutcome = sliceTry(storage, 'active', coerceSessionActive);
@@ -112,7 +126,7 @@ export function storageLoad(storage: StorageLike): StorageLoadResult {
       active,
       sessions,
       tags: listRead('tags', coerceTag),
-      purchases: listRead('purchases', coercePurchase),
+      purchases,
       settings: sliceRead('settings', coerceSettings, settingsDefault),
       ui: sliceRead('ui', coerceUi, uiDefault),
     },

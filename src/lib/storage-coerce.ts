@@ -35,6 +35,14 @@ function fieldNonNegative(fields: Fields, key: string, what: string): number {
   return value;
 }
 
+function fieldNonNegativeInteger(fields: Fields, key: string, what: string): number {
+  const value = fieldNonNegative(fields, key, what);
+  if (!Number.isInteger(value)) {
+    throw new ErrorStorageCorrupt(`${what}.${key}: expected a whole number`);
+  }
+  return value;
+}
+
 function fieldNonNegativeOptional(fields: Fields, key: string, what: string): number | undefined {
   if (fields[key] === undefined) {
     return undefined;
@@ -144,9 +152,10 @@ export function coercePurchase(raw: unknown): Purchase {
   const what = 'purchase';
   const fields = recordRead(raw, what);
   return {
+    id: fieldString(fields, 'id', what),
     speciesId: fieldString(fields, 'speciesId', what),
     at: fieldNonNegative(fields, 'at', what),
-    cost: fieldNonNegative(fields, 'cost', what),
+    cost: fieldNonNegativeInteger(fields, 'cost', what),
   };
 }
 

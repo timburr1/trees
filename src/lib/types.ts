@@ -43,6 +43,7 @@ export type Tag = {
 };
 
 export type Purchase = {
+  readonly id: string;
   readonly speciesId: string;
   readonly at: number;
   /** Recorded at purchase time, so re-pricing a species never rewrites history. */

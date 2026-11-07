@@ -36,7 +36,7 @@ export function tagMake(overrides: Partial<Tag> = {}): Tag {
 }
 
 export function purchaseMake(overrides: Partial<Purchase> = {}): Purchase {
-  return { speciesId: 'pine', at: 1_000_000, cost: 10, ...overrides };
+  return { id: 'purchase-1', speciesId: 'pine', at: 1_000_000, cost: 10, ...overrides };
 }
 
 export function settingsMake(overrides: Partial<Settings> = {}): Settings {

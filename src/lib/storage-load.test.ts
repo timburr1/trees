@@ -57,6 +57,32 @@ describe('storageLoad', () => {
     expect(result.problems.map((p) => p.slice)).toEqual(['sessions']);
   });
 
+  it('drops an identical duplicate purchase silently apart from a problem entry, and keeps nothing extra on disk', () => {
+    const first = purchaseMake({ id: 'same', speciesId: 'pine', cost: 25 });
+    const other = purchaseMake({ id: 'other', speciesId: 'birch', cost: 40 });
+    const storage = storageFakeMake({ [storageKey('purchases')]: JSON.stringify([first, { ...first }, other]) });
+    const result = storageLoad(storage);
+    expect(result.data.purchases).toEqual([first, other]);
+    expect(result.problems.map((p) => p.slice)).toEqual(['purchases']);
+    expect(result.guard.rejected.purchases).toBeUndefined();
+  });
+
+  it('keeps a purchase that shares an id with a different one as rejected, so its record survives and buying is blocked', () => {
+    const first = purchaseMake({ id: 'same', speciesId: 'pine', cost: 25 });
+    const conflicting = purchaseMake({ id: 'same', speciesId: 'spruce', cost: 60 });
+    const storage = storageFakeMake({ [storageKey('purchases')]: JSON.stringify([first, conflicting]) });
+    const result = storageLoad(storage);
+    expect(result.data.purchases).toEqual([first]);
+    expect(result.guard.rejected.purchases).toEqual([conflicting]);
+  });
+
+  it('keeps a rejected purchase record for the next save', () => {
+    const storage = storageFakeMake({ [storageKey('purchases')]: JSON.stringify([purchaseMake({ id: 'a' }), { cost: 1.5 }]) });
+    const result = storageLoad(storage);
+    expect(result.data.purchases.map((p) => p.id)).toEqual(['a']);
+    expect(result.guard.rejected.purchases).toEqual([{ cost: 1.5 }]);
+  });
+
   it('drops an active session whose id is already finished, removes it from disk, and reports nothing', () => {
     const storage = storageFakeMake({
       [storageKey('active')]: JSON.stringify(sessionActiveMake({ id: 'same' })),
