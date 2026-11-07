@@ -261,7 +261,13 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 
 **Hydration.** Persistence is gated on a `hydrated` flag so the first render cannot write empty state over stored data. Hydration drops an `active` whose id is already in `sessions`.
 
-**Backup.** Settings has Export (one JSON file with all collections and a `schemaVersion`) and Import (validated through the same `coerce*` functions, preview of counts, replace after confirmation, never a partial apply). The export is also the way out of the app. On iOS an installed PWA, a plain `a[download]` blob link historically opened a viewer or failed; use `navigator.share({ files })` where available and **verify on a real device**. Import and Reset are blocked while a session is running.
+**Backup.** Settings has Export, Import, and Reset (`SettingsData`). The file is `{ app: 'trees', schemaVersion, exportedAt, sessions, tags, purchases, settings }`; the running session and `ui` stay out. **Rejected records are written back into their lists as they are on disk**, so export then import loses nothing, and **export is off while a slice is unreadable** (its fallback would be written as real data); the raw text of an unreadable slice shows with a Copy button instead.
+
+**Import is load.** `backupParse` checks the envelope (`app`, `schemaVersion`; a newer version has its own message), requires all four slices (a missing one means a cut-short file, and defaulting it would wipe real data), and hands the file's slices to `storageLoad`, so bad records, duplicates, and conflicts behave exactly as they do from disk: bad records are kept (shown as a count), and a slice that comes back unreadable fails the import with its name. The preview shows counts, then replaces after confirmation. A replace has nothing to merge, so the earliest-purchase rule of section 13 does not apply to it.
+
+**Replacing (`dataReplace`, `storageReplace`).** Import and Reset share one store method, `dataReplace(loaded, kind)`. It refuses while a session runs, except when the history is unreadable (a stored session beside it can never finish, and replacing is the way out; Import and Reset also appear on that blocked screen). It writes every slice over unreadable text, because the user confirmed. If a write throws, every key is removed first (which frees space) and then put back as it was, so a failed import never leaves a mix. If even that fails, `ErrorStorageRollback` stops the store with a blocking entry. Disk may then be incomplete, but the page still holds the previous data, so the entry tells the user to export a backup from Settings (Export reads the in-memory state), then reload and import it. After a replace the load-derived status entries (exactly the codes the previous load produced) are rebuilt from the new data and only their dismissals are forgotten. `settingsSet` and `uiExported` do nothing while their slice is unreadable, as tag and purchase changes do. An import acknowledges its last session, so it does not appear as a waiting result, and keeps `lastExportedAt`; Reset forgets it.
+
+**Saving the file.** A Blob download everywhere except an installed standalone app, where iOS opens a viewer or fails on one; there `navigator.share({ files })` is used. Desktop browsers can share files too, but the share sheet is the wrong tool for them. **Verify the installed-app path on a real device.**
 
 ## 7. Economy
 
@@ -325,7 +331,7 @@ Forest and Stats share one `usePeriodView` hook and `PeriodNav` component, so th
 Pure functions over `SessionFinished[]`, in `stats-*.ts`:
 
 - `statsBucket(sessions, range, now)`: one bucket per local day in the range (`{ dayStart, focusedMs, completed, failed }`); a week is seven and a month 28 to 31, so there is no granularity argument. `statsTotal` sums them. Both it and `forestGroup` use `timeRangeDay` for which day a session falls on, so the screens cannot disagree; `now` only needs to be real, and the screens pass `Math.min(now, range.end)` so a past period's memoized result does not change with the clock tick.
-- `statsTag(sessions, range)`: minutes per tag. Built in step 9 with the tag picker; until then every session is untagged and the breakdown would be one row.
+- `statsTag(sessions, tags, range, now)`: focused time and completed count per tag, as `tag`, `untagged`, and `unknown` rows (completed sessions only, same day rule). Every tag id that matches no stored tag collapses into one `unknown` row, so a rejected tag record or newer-version data cannot add a row per id. Rows with no focus time are left out, largest first, ties by kind and name. The screen hides the breakdown when the only row is untagged.
 - `statsStreak(sessions, today)` (`today` is a day start): current and longest runs of consecutive days that each have at least `timerMinMs` of completed focus, so a stopwatch stopped after seconds cannot keep a streak alive (open question 5 stays open for the session rules). **The current streak counts a run ending today or yesterday**, or it reads 0 every morning until the first session. A session dated after today counts as today, so it can bridge a gap today and stop bridging it tomorrow (a test pins this). Streaks cover the whole history, so the screen shows them apart from the period summary.
 
 Only completed sessions count as focused time. "Today" is derived from an injected clock at render, and the Forest and Stats screens re-render once a minute, so a tab left open overnight rolls over.
@@ -334,15 +340,15 @@ Only completed sessions count as focused time. "Today" is derived from an inject
 
 ## 10. UI
 
-Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6, 7, and 8 ship Focus, Forest, Shop, and Stats. The tabs never shrink below their text (`min-w-fit`) and wrap to a second row when text is large, so they cannot overflow; four fit one row at 320 px and normal text size, and step 9's Settings tab needs a short label to keep it that way. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
+Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Steps 6 to 9 ship Focus, Forest, Shop, Stats, and Settings. The tabs never shrink below their text (`min-w-fit`) and wrap to a second row when text is large, so they cannot overflow. Settings is a gear icon with an accessible name, since a fifth text tab does not fit one row at 320 px; the nav's side padding is trimmed to make room. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration, species, tag) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result). The duration stays `undefined` until the slider moves, so it follows the default in Settings. Screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
 
 | Screen | Contents |
 | --- | --- |
-| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Now shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, and coins earned on the result. Still missing: the tag picker (step 9). |
+| Focus | Idle: duration dial, tag picker, species picker, Start. Running: growing tree, countdown, Give Up (confirmed). Result: outcome and coins earned. Install prompt before the first session on iOS (arrives with the PWA, step 10). Shipped: mode switch, duration slider, a Relaxed checkbox so relaxed mode can be tried on a phone, a species picker once more than one is owned, a tag picker once a tag exists, and coins earned on the result. |
 | Forest | Section 8.3. |
-| Stats | Period switch, totals, per-day table, streaks. (The per-tag breakdown arrives in step 9.) |
+| Stats | Period switch, totals, per-day table, per-tag table (once a tag is used), streaks. |
 | Shop | Species grid with cost and owned state, coin balance. |
-| Settings | Strictness, default duration, sound, week start, tag management, export, import, reset. |
+| Settings | Strictness, default duration, sound (read when a session finishes), week start, tag management (create, archive; names are NFC-normalized and unique across archived tags too), export, import, reset. |
 
 A `StatusBanner` shows storage and platform warnings (section 6). Component names are category first: `ForestDay`, `ForestTile`, `StatsBars`, `StatsSummary`, `TreeSprite`, `TimerDial`, `TimerCountdown`, `ShopCard`.
 
@@ -372,7 +378,7 @@ src/
     tree-geometry.ts            treeGeometry: a tree as flat shapes in a fixed viewBox
     tree-label.ts               accessible name of a tree
     stats-bucket.ts             statsBucket, statsTotal
-    stats-tag.ts                (step 9)
+    stats-tag.ts                statsTag
     stats-streak.ts             statsStreak
     duration-format.ts          durationFormat: "2 h 35 min"
     time-local.ts               local date-part helpers, TimePeriod, timePeriodRange (half-open), timeRangeDay (the day-assignment rule Forest and Stats share)
@@ -380,12 +386,13 @@ src/
     storage-coerce.ts           validators; the trust boundary
     storage-slices.ts           slice names and write order, storage keys, StorageLike, StorageGuard
     storage-load.ts             storageLoad(storage): data, problems, guard; hydration rules
-    storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes
-    backup-export.ts
-    backup-import.ts
-    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid
+    storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes; storageReplace: write everything, or put everything back
+    tag-edit.ts                 tagCreate, tagArchive, tagsActive, tagChosenEffective
+    backup.ts                   backupSerialize, backupParse (import is storageLoad over the file)
+    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid, ErrorStorageRollback
   platform/                     thin browser wrappers
     id.ts                       crypto.randomUUID, secure context only
+    file-save.ts                fileSave: Blob download, or the share sheet in an installed app
     owner-lock.ts               ownerLockAcquire, ownerLockSteal (section 5.4)
     app-controller.ts           owner lock, store lifetime, bfcache, storage-unavailable (section 5.4)
     wake-lock.ts                wakeLockMake (section 5.5)
@@ -423,7 +430,7 @@ Goal: the same forest on phone and laptop, built after the local prototype works
 What the data model already gives:
 
 - Finished sessions, purchases, and tag creations are **append-only and immutable**. Merging two devices is a union by `id`, with no last-write-wins and no tombstones for those collections.
-- **Purchases need one more rule.** Two devices that each buy Pine create two different ids, and a plain union would charge twice. The merge keeps only the earliest purchase per species and drops later ones, and the same rule applies to a backup import (step 9). Define it with the merge code, before either exists.
+- **Purchases need one more rule.** Two devices that each buy Pine create two different ids, and a plain union would charge twice. The merge keeps only the earliest purchase per species and drops later ones. It belongs to the merge alone: a backup import replaces everything and loads like storage, so it has nothing to merge. Define the rule with the merge code, before either exists.
 - Mutable data is limited to tag archive and settings. Add `updatedAt` to those at that point (not before) and reuse mello's last-write-wins rule.
 
 Changes from mello:
@@ -470,7 +477,7 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 6. Forest screen.
 7. Coins, purchases, Shop.
 8. Stats (without the per-tag breakdown).
-9. Settings, tag management, `statsTag` and its breakdown, backup export and import.
+9. Settings, tag management, `statsTag` and its breakdown, backup export and import (done).
 10. PWA manifest, icons, service worker, SWA and CSP config.
 
 **Before step 4 finishes, test strict mode on a real phone** (open question 1).

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FocusScreen } from './components/FocusScreen.tsx';
 import type { FocusSetupChoice } from './components/FocusSetup.tsx';
 import { ForestScreen } from './components/ForestScreen.tsx';
+import { SettingsScreen } from './components/SettingsScreen.tsx';
 import { ShopScreen } from './components/ShopScreen.tsx';
 import { StatsScreen } from './components/StatsScreen.tsx';
 import { NavBar, type FocusIndicator, type Screen } from './components/NavBar.tsx';
@@ -15,6 +16,9 @@ import { useStore } from './hooks/useStore.ts';
 import { speciesStarter } from './lib/species-catalog.ts';
 import { selectResultPending, type StoreApp } from './lib/store-app.ts';
 import type { AppController } from './platform/app-controller.ts';
+import { fileSave as fileSaveReal, type FileSave } from './platform/file-save.ts';
+
+const fileSave: FileSave = (name, text) => fileSaveReal(name, text, (message) => console.warn(`[trees] ${message}`));
 
 function ScreenView({
   screen,
@@ -36,6 +40,8 @@ function ScreenView({
       return <StatsScreen store={store} />;
     case 'shop':
       return <ShopScreen store={store} />;
+    case 'settings':
+      return <SettingsScreen store={store} fileSave={fileSave} />;
     default:
       throw new Error(`Unhandled screen: ${String(screen satisfies never)}`);
   }
@@ -45,17 +51,16 @@ function ScreenView({
 function AppReady({ store }: { store: StoreApp }) {
   const status = useStore(store, (state) => state.status);
   const sessionsBlocked = useStore(store, (state) => state.sessionsBlocked);
-  const sessionsRaw = useStore(store, (state) => state.guard.corrupt.sessions);
   const running = useStore(store, (state) => state.data.active !== undefined);
   const resultReady = useStore(store, (state) => selectResultPending(state) !== undefined);
   const [screen, setScreen] = useState<Screen>('focus');
-  const [choice, setChoice] = useState<FocusSetupChoice>({ mode: 'countdown', speciesId: speciesStarter.id, durationMs: undefined });
+  const [choice, setChoice] = useState<FocusSetupChoice>({ mode: 'countdown', speciesId: speciesStarter.id, durationMs: undefined, tagId: undefined });
   useSessionRunner(store);
   if (sessionsBlocked) {
     return (
       <>
         <StatusBanner store={store} status={status} />
-        <SessionsBlocked raw={sessionsRaw ?? ''} />
+        <SessionsBlocked store={store} fileSave={fileSave} />
       </>
     );
   }

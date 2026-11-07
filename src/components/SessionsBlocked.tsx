@@ -1,15 +1,13 @@
-export function SessionsBlocked({ raw }: { raw: string }) {
+import type { FileSave } from '../platform/file-save.ts';
+import type { StoreApp } from '../lib/store-app.ts';
+import { SettingsData } from './SettingsData.tsx';
+
+/** The only screen when the history is unreadable. Import and Reset live here too, because they are the way out. */
+export function SessionsBlocked({ store, fileSave }: { store: StoreApp; fileSave: FileSave }) {
   return (
-    <section className="space-y-3">
-      <h2 className="text-lg font-semibold">Session history unreadable</h2>
-      <p>The stored text is below, untouched. Copy it somewhere safe before clearing site data.</p>
-      <textarea readOnly value={raw} aria-label="Raw session history" className="h-48 w-full rounded border border-line bg-raised p-2 font-mono text-xs" />
-      {/* The clipboard API exists only in secure contexts; without it, the textarea can still be selected by hand. */}
-      {typeof navigator.clipboard === 'object' ? (
-        <button type="button" className="rounded border border-line px-3 py-1" onClick={() => void navigator.clipboard.writeText(raw)}>
-          Copy
-        </button>
-      ) : null}
+    <section className="space-y-4">
+      <h1 className="text-xl font-semibold">Session history unreadable</h1>
+      <SettingsData store={store} fileSave={fileSave} />
     </section>
   );
 }

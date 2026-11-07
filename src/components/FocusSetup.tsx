@@ -2,6 +2,7 @@ import { timerMaxMs, timerMinMs, timerStepMs } from '../lib/config.ts';
 import { durationClamp } from '../lib/duration-clamp.ts';
 import { speciesCatalog, speciesResolve, speciesStarter } from '../lib/species-catalog.ts';
 import { speciesOwned } from '../lib/species-owned.ts';
+import { tagChosenEffective, tagsActive } from '../lib/tag-edit.ts';
 import type { AppState, StoreApp } from '../lib/store-app.ts';
 import { chimeUnlock } from '../platform/chime.ts';
 import { idAvailable, idNew } from '../platform/id.ts';
@@ -10,7 +11,12 @@ import { TreeSprite } from './TreeSprite.tsx';
 const MINUTE_MS = 60_000;
 
 /** `durationMs` is `undefined` until the slider moves, so the choice follows the default duration in Settings. */
-export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number | undefined; readonly speciesId: string };
+export type FocusSetupChoice = {
+  readonly mode: 'countdown' | 'stopwatch';
+  readonly durationMs: number | undefined;
+  readonly speciesId: string;
+  readonly tagId: string | undefined;
+};
 
 /** The choice lives above this screen so it survives switching to another screen and back. */
 export function FocusSetup({
@@ -28,8 +34,10 @@ export function FocusSetup({
   const { mode } = choice;
   const durationMs = durationClamp(choice.durationMs ?? settings.defaultDurationMs);
   const owned = speciesCatalog.filter((species) => speciesOwned(state.data, species.id));
-  // The chosen species is only unowned if the data changed under the screen (an import, later); the starter is always safe.
+  // The chosen species is only unowned if the data changed under the screen (an import can change it); the starter is always safe.
   const speciesId = owned.some((species) => species.id === choice.speciesId) ? choice.speciesId : speciesStarter.id;
+  const tagsPickable = tagsActive(state.data.tags);
+  const tagId = tagChosenEffective(state.data.tags, choice.tagId);
   const canStart = idAvailable();
   const settingsLocked = state.guard.corrupt.settings !== undefined;
 
@@ -39,7 +47,7 @@ export function FocusSetup({
       id: idNew(),
       now: Date.now(),
       mode: mode === 'countdown' ? { kind: 'countdown', plannedMs: durationMs } : { kind: 'stopwatch' },
-      tagId: undefined,
+      tagId,
       speciesId,
     });
     // After the dispatch: audio is optional and must never stop a session from starting.
@@ -75,6 +83,23 @@ export function FocusSetup({
             ))}
           </div>
         </fieldset>
+      ) : null}
+      {tagsPickable.length > 0 ? (
+        <label className="block space-y-1">
+          <span>Tag</span>
+          <select
+            value={tagId ?? ''}
+            className="block rounded border border-line bg-raised px-2 py-1"
+            onChange={(event) => onChoiceChange({ ...choice, tagId: event.target.value === '' ? undefined : event.target.value })}
+          >
+            <option value="">No tag</option>
+            {tagsPickable.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
       <div role="radiogroup" aria-label="Timer mode" className="flex gap-2">
         {(['countdown', 'stopwatch'] as const).map((option) => (

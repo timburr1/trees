@@ -16,6 +16,15 @@ import type { Persisted, Purchase, SessionActive, SessionFinished, Settings, UiS
 export const settingsDefault: Settings = { strictness: 'strict', defaultDurationMs: timerDefaultMs, soundOn: true, weekStart: 'sunday' };
 const uiDefault: UiState = { lastAcknowledgedId: undefined, lastExportedAt: undefined };
 
+/** What loading empty storage gives: the starting point for a reset. */
+export function storageLoadEmpty(): StorageLoadResult {
+  return {
+    data: { active: undefined, sessions: [], tags: [], purchases: [], settings: settingsDefault, ui: uiDefault },
+    problems: [],
+    guard: { corrupt: {}, rejected: {} },
+  };
+}
+
 export type StorageProblem = { readonly slice: SliceName; readonly message: string };
 
 export type StorageLoadResult = {

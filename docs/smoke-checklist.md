@@ -93,7 +93,7 @@ UI is not unit-tested; this is the only coverage. Seed `trees:v1:sessions` in De
 - [ ] A day with only a stopwatch of a few seconds does not extend the streak. Two 6-minute sessions on one day do.
 - [ ] Monday week start via `settings.weekStart`: the week begins on Monday.
 - [ ] Empty period: zero totals, and rows of 0 min in Week and Month.
-- [ ] Four-tab nav at 320 px and 1280 px stays on one line. At browser text size 200% the tabs wrap to a second row and none clips or overflows. Focus's mark still shows with a running session.
+- [ ] Five-tab nav (Settings is a gear) at 320 px and 1280 px stays on one line, and a screen reader reads the gear as "Settings". At browser text size 200% the tabs wrap to a second row and none clips or overflows. Focus's mark still shows with a running session.
 - [ ] During a running session, the Stats screen does not re-render each second (React Profiler).
 - [ ] Forest after the shared-navigation change: switching periods, previous and next, and the selected tile clearing on navigation all behave as before.
 
@@ -113,6 +113,43 @@ UI is not unit-tested; this is the only coverage. Seed `trees:v1:sessions` and `
 - [ ] Open the app over plain HTTP from another device: the Shop shows the secure-page note once, under the balance.
 - [ ] Nav at 320 px with a running session (Focus shows a dot) and with a result waiting (Focus shows a mark): all three tabs stay on one line. A screen reader reads "Focus (running)" and "Focus (result ready)". Shop grid at 320 px: two cards per row without overflow.
 - [ ] Open a second tab and use "Use here": the first tab cannot buy (it is fenced).
+
+## Settings and tags
+
+UI is not unit-tested; this is the only coverage.
+
+- [ ] Strictness, default duration, sound, and week start each change and survive a reload. Changing the default duration shows on Focus at once, with no reload, until the slider on Focus is moved.
+- [ ] Sound off: a finishing session is silent (the banner and result still appear). Sound on: the chime plays.
+- [ ] Add a tag: it appears in the list and in the Focus Tag picker. Starting with it shows the tag in the Forest details.
+- [ ] Names: leading and trailing spaces are trimmed; "Cafe" typed with a combining accent matches an existing "Caf\u00e9"; a name in different case is refused; a 41-character name is refused; an archived tag's name is refused with its own message.
+- [ ] Archive a tag (asks first): it leaves the picker and the list, a count of archived tags shows, and old sessions still show its name in the Forest and Stats. A Focus choice of that tag falls back to No tag.
+- [ ] Over plain HTTP the Add button is disabled with the secure-page note.
+- [ ] Set `trees:v1:tags` to `{`: the tag controls are disabled with an explanation, nothing is written to that key, and its raw text shows under Backup.
+- [ ] Set `trees:v1:settings` to `{`: every Timer control is disabled with an explanation, and the stored text is untouched.
+
+## Per-tag stats
+
+- [ ] With no tagged session in the period, no tag table shows. With sessions in two tags and some with none, the table lists each tag and "No tag" by focused time, with a share percent in the text. Failed sessions add nothing.
+- [ ] A session whose tag id is in no stored tag shows under one "Unknown tags" row, however many such ids exist.
+- [ ] An archived tag shows "(archived)" in the table.
+- [ ] The bar width follows the share, and the row text carries the same information, in light and dark.
+
+## Backup
+
+- [ ] Export downloads a `trees-backup-YYYY-MM-DD.json` file on desktop (no share sheet). "Last exported" updates. Cancelling a share on a phone changes nothing and shows no error.
+- [ ] iOS, installed to the home screen: Export opens the share sheet and the file can be saved to Files. Note the result. This is the open risk of design section 6.
+- [ ] Export, then clear site data, then Import that file: Forest, Stats, Shop balance, tags, and settings are identical, and no "result ready" mark appears on Focus.
+- [ ] Import a file that is not JSON, one with `app` changed, one with `schemaVersion` 2, and one with `sessions` set to an object: each shows its own message and nothing changes.
+- [ ] Import a file with one bad session record: the preview counts it as not valid, the import succeeds, and a later export carries that record.
+- [ ] Cancel at the preview changes nothing. The preview says what will be replaced.
+- [ ] With a running session, Import and Reset are disabled with the reason. Opening Settings does not stop the session.
+- [ ] Fill storage so a replace cannot fit (or use a large file) and confirm: an error says the data is unchanged, and the old data is intact after a reload.
+- [ ] Reset asks first, mentions unreadable records when there are some, and afterward the app is as on first run (default settings, no tags, no history).
+- [ ] Set `trees:v1:purchases` to `{`: Export is disabled with the reason and the raw text shows. Reset clears it.
+- [ ] Import a file with one of `sessions`, `tags`, `purchases`, or `settings` deleted by hand: it is refused, naming the missing part.
+- [ ] Tab to Import: a visible focus ring shows on the button. After choosing a file, focus lands on "Replace my data"; the same for Reset and tag Archive confirmations.
+- [ ] A tag name containing a joined emoji (a person at a laptop) is accepted.
+- [ ] Set `trees:v1:sessions` to `{` and keep a stored `trees:v1:active`: the blocked screen offers Import and Reset, and either one restores the app.
 
 ## Warnings and errors
 
