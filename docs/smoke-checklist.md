@@ -61,6 +61,25 @@ The unit tests cover the logic and the races (against fakes). They cannot cover 
 - [ ] Reduced motion on: no grow-in animation.
 - [ ] Seed an old session with an unknown species id (for example `placeholder-tree`) in DevTools: a generic grey-green tree and exactly one "Species this version does not know" warning.
 
+## Forest and navigation
+
+UI is not unit-tested; this is the only coverage. Seed sessions through DevTools (`trees:v1:sessions`) where noted.
+
+- [ ] Start a session, switch to Forest and back. The timer, title, and wake lock continue, and the Focus button reads "(running)" while away.
+- [ ] Let a session finish while on Forest. The Focus button reads "(result ready)", and the chime plays. Open Focus, dismiss the result, and the suffix clears.
+- [ ] On Setup, pick Stopwatch and a different duration, go to Forest and back: both choices are kept.
+- [ ] With sessions on several days: Day, Week, and Month show the right trees under day headings, newest day first. Previous and Next step by one period, and Next is disabled on the current one.
+- [ ] A session that ran across midnight sits under the day it started.
+- [ ] Set `settings.weekStart` to `monday` in storage and reload: the week view begins on Monday.
+- [ ] Seed about 300 sessions: the Forest stays responsive, and with a session running, the Focus screen re-renders each second and the Forest does not (React Profiler on each). On Forest, clicking a tile re-renders at most two day groups.
+- [ ] Tab to a tile and press Enter or Space: a details panel opens under that day and focus moves to its heading. Pressing the tile again closes it. `aria-expanded` follows.
+- [ ] Details show start time, focused minutes, and the outcome (Completed, Gave up, Left the page). Seed a `tagId` that exists in `tags` and the name appears.
+- [ ] Live and dead trees are distinguishable at tile size, in light and dark mode.
+- [ ] An empty period shows the empty text.
+- [ ] Leave the Forest open past midnight: "today" moves on within a minute.
+- [ ] Nav at 320 px and 1280 px: the last tile row and Give Up are never covered. On a phone with a notch, the bar clears the home indicator.
+- [ ] Corrupt `trees:v1:sessions`: the blocked screen appears and no nav does.
+
 ## Warnings and errors
 
 - [ ] Ten tab switches in a relaxed session produce no repeated or stacking warnings.

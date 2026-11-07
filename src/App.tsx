@@ -1,4 +1,8 @@
+import { useState } from 'react';
 import { FocusScreen } from './components/FocusScreen.tsx';
+import type { FocusSetupChoice } from './components/FocusSetup.tsx';
+import { ForestScreen } from './components/ForestScreen.tsx';
+import { NavBar, type FocusIndicator, type Screen } from './components/NavBar.tsx';
 import { OwnerBlocked } from './components/OwnerBlocked.tsx';
 import { SessionsBlocked } from './components/SessionsBlocked.tsx';
 import { StatusBanner } from './components/StatusBanner.tsx';
@@ -6,16 +10,60 @@ import { StorageUnavailable } from './components/StorageUnavailable.tsx';
 import { useApp } from './hooks/useApp.ts';
 import { useSessionRunner } from './hooks/useSessionRunner.ts';
 import { useStore } from './hooks/useStore.ts';
-import type { StoreApp } from './lib/store-app.ts';
+import { durationClamp } from './lib/duration-clamp.ts';
+import { selectResultPending, type StoreApp } from './lib/store-app.ts';
 import type { AppController } from './platform/app-controller.ts';
 
+function ScreenView({
+  screen,
+  store,
+  choice,
+  onChoiceChange,
+}: {
+  screen: Screen;
+  store: StoreApp;
+  choice: FocusSetupChoice;
+  onChoiceChange: (choice: FocusSetupChoice) => void;
+}) {
+  switch (screen) {
+    case 'focus':
+      return <FocusScreen store={store} choice={choice} onChoiceChange={onChoiceChange} />;
+    case 'forest':
+      return <ForestScreen store={store} />;
+    default:
+      throw new Error(`Unhandled screen: ${String(screen satisfies never)}`);
+  }
+}
+
+// Selects only what the frame needs, so the per-second session ticks re-render the Focus screen and nothing else.
 function AppReady({ store }: { store: StoreApp }) {
-  const state = useStore(store, (current) => current);
+  const status = useStore(store, (state) => state.status);
+  const sessionsBlocked = useStore(store, (state) => state.sessionsBlocked);
+  const sessionsRaw = useStore(store, (state) => state.guard.corrupt.sessions);
+  const running = useStore(store, (state) => state.data.active !== undefined);
+  const resultReady = useStore(store, (state) => selectResultPending(state) !== undefined);
+  const [screen, setScreen] = useState<Screen>('focus');
+  const [choice, setChoice] = useState<FocusSetupChoice>(() => ({
+    mode: 'countdown',
+    durationMs: durationClamp(store.getState().data.settings.defaultDurationMs),
+  }));
   useSessionRunner(store);
+  if (sessionsBlocked) {
+    return (
+      <>
+        <StatusBanner store={store} status={status} />
+        <SessionsBlocked raw={sessionsRaw ?? ''} />
+      </>
+    );
+  }
+  const focusIndicator: FocusIndicator = running ? 'running' : resultReady ? 'result' : 'idle';
   return (
     <>
-      <StatusBanner store={store} status={state.status} />
-      {state.sessionsBlocked ? <SessionsBlocked raw={state.guard.corrupt.sessions ?? ''} /> : <FocusScreen store={store} state={state} />}
+      <StatusBanner store={store} status={status} />
+      <div className="flex-1">
+        <ScreenView screen={screen} store={store} choice={choice} onChoiceChange={setChoice} />
+      </div>
+      <NavBar screen={screen} focusIndicator={focusIndicator} onNavigate={setScreen} />
     </>
   );
 }
@@ -23,7 +71,7 @@ function AppReady({ store }: { store: StoreApp }) {
 export function App({ controller }: { controller: AppController }) {
   const status = useApp(controller);
   return (
-    <main className="mx-auto max-w-xl p-6">
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col p-6">
       <AppStatusView status={status} controller={controller} />
     </main>
   );

@@ -312,7 +312,9 @@ A stopwatch can be stopped at 0:03 and counts as completed, so its result shows 
 
 ### 8.3 Forest view
 
-One `ForestTile` per finished session in a CSS grid, chronological, grouped under day headings, with a period switch (today, week, month). Placement is by order, so the forest never reshuffles. A tile opens details: start time, duration, tag, outcome. Isometric land, terrain, and animation beyond growth are out of scope. The art is the weakest part of the prototype and the easiest to improve without touching logic.
+One `ForestTile` per finished session, grouped under day headings (newest day first), with a period switch (day, week, month) and previous and next buttons. The period is a half-open range `[start, end)` from `timePeriodRange`; previous is the range containing `start - 1`, next the one containing `end`, and next is disabled on the current period. With no navigation the view follows the clock, so "this week" rolls over without a click. Within a day, trees keep array (finish) order, not `startedAt` order, so a clock change never reshuffles the forest. A tile is a button; it opens a details panel directly under its day (start time, focused minutes, outcome, and the tag if it still resolves) and moves focus to the panel's heading. Isometric land, terrain, and animation beyond growth are out of scope. The art is the weakest part of the prototype and the easiest to improve without touching logic.
+
+`AppReady` selects only what the frame needs (status, blocked state, and two booleans for the nav). The Focus screen selects the whole state itself because it changes every second; the Forest selects `sessions`, `tags`, and `weekStart` and re-renders once a minute. Tiles and day groups are `memo`'d, so selecting a tile redraws two groups at most; the minute tick regroups the current period (new group objects), which redraws its day sections but not their tiles. There is no virtualization (a month is a few thousand SVG nodes). A corrupt `sessions` slice hides the nav along with every screen, so an empty Forest never reads as lost data.
 
 ## 9. Stats
 
@@ -324,11 +326,11 @@ Pure functions over `SessionFinished[]`, in `stats-*.ts`:
 
 Only completed sessions count as focused time. "Today" is derived from an injected clock at render, and the Forest and Stats screens re-render once a minute, so a tab left open overnight rolls over.
 
-**Day bucketing uses local-time date parts only.** Never add 24 h of milliseconds to a date: it works until a daylight-saving change, then the boundary moves by an hour (mello's recurrence code documents the same hazard). A session belongs to the local day it started in. Week start is a Sunday or Monday setting, default Sunday; there is no locale detection (the needed `Intl` week info is not in every browser). Tests run under `TZ=America/Denver` across both DST transitions.
+**Day bucketing uses local-time date parts only.** Never add 24 h of milliseconds to a date: it works until a daylight-saving change, then the boundary moves by an hour (mello's recurrence code documents the same hazard). A session belongs to the local day it started in, so one running 23:40 to 00:20 sits under the earlier day (accepted: a start-day rule is simple and stable). A session dated after the clock (a clock set forward once) counts as starting now, so it stays in the current period; `timeStartEffective` implements this and stats must reuse it. Tradeoff: such a tile sits under today and moves with the clock until real time passes its date, and a past period no longer shows it. `time-local` owns the period concept (`TimePeriod`, `timePeriodRange`), shared by the Forest and Stats. Week start is a Sunday or Monday setting, default Sunday; there is no locale detection (the needed `Intl` week info is not in every browser). Tests run under `TZ=America/Denver` across both DST transitions.
 
 ## 10. UI
 
-Five screens in a bottom tab bar (mobile) or side rail (desktop). Tab state is in memory; there is no router. The SWA fallback rule still serves `index.html` for any path.
+Five screens in a bottom tab bar (a side rail on desktop is not built; the bar serves all widths). Tab state is in memory; there is no router. Step 6 ships Focus and Forest. The Focus button says "(running)" or "(result ready)" when it applies, because the chime can sound on another screen. Setup choices (mode, duration) live in `AppReady` and survive a screen switch and the end of a session (they no longer reset to the default duration after each result); screens unmount when inactive. The SWA fallback rule still serves `index.html` for any path.
 
 | Screen | Contents |
 | --- | --- |
@@ -338,7 +340,7 @@ Five screens in a bottom tab bar (mobile) or side rail (desktop). Tab state is i
 | Shop | Species grid with cost and owned state, coin balance. |
 | Settings | Strictness, default duration, sound, week start, tag management, export, import, reset. |
 
-A `StatusBanner` shows storage and platform warnings (section 6). Component names are category first: `ForestGrid`, `ForestTile`, `StatsBars`, `StatsSummary`, `TreeSprite`, `TimerDial`, `TimerCountdown`, `ShopCard`.
+A `StatusBanner` shows storage and platform warnings (section 6). Component names are category first: `ForestDay`, `ForestTile`, `StatsBars`, `StatsSummary`, `TreeSprite`, `TimerDial`, `TimerCountdown`, `ShopCard`.
 
 Dark and light via `prefers-color-scheme`. Keyboard operable, visible focus, enough contrast. The countdown is not announced every second to screen readers; announce start, halfway (countdowns only; a stopwatch has no end to be halfway to), and finish. The UI states what "leaving" means (including fully covered windows on desktop, section 3).
 
@@ -366,7 +368,8 @@ src/
     stats-bucket.ts
     stats-tag.ts
     stats-streak.ts
-    time-local.ts               local date-part helpers (added with the stats in step 8)
+    time-local.ts               local date-part helpers, TimePeriod, timePeriodRange (half-open)
+    forest-group.ts             forestGroup: sessions in a range, grouped by start day
     storage-coerce.ts           validators; the trust boundary
     storage-slices.ts           slice names and write order, storage keys, StorageLike, StorageGuard
     storage-load.ts             storageLoad(storage): data, problems, guard; hydration rules
@@ -436,6 +439,7 @@ Unit tests (Vitest, beside the module) target the seams where bugs are silent. T
 | `coinsBalance` and purchases | Failed sessions earn nothing; balance matches purchases; re-pricing does not change history; double purchase and insufficient balance are rejected. |
 | `growthStage` | Monotonic; endpoints; clamps out-of-range input; stopwatch progress caps at fully grown. |
 | Pause and stopwatch | Pause freezes the clock and ignores absence; resume extends `endsAt` by the pause length; a second pause is rejected; a pause past `sessionPauseMaxMs` auto-resumes and then fails a strict session whose user stayed away; a stopwatch completes on stop or at `timerMaxMs` of active time, and still fails on absence; stopwatch coins use elapsed active time. |
+| `time-local`, `forestGroup` | Both DST transitions in `America/Denver` with expected values as ISO strings with explicit offsets; 23:30 and 00:30; the repeated 01:30; Sunday and Monday week starts across month and year boundaries; ranges tile with no gap or overlap; half-open boundaries; start-day grouping; future-dated sessions; array order within a day. |
 | `statsBucket`, `statsStreak` | Both DST transitions in `America/Denver`; 23:30 and 00:30 local sessions; week start; empty input; a streak with no session yet today still counts through yesterday. A guard test fails if `TZ` stops being pinned. |
 | `storageCoerce` | Valid, missing fields, wrong types, hand-edited garbage; one bad record rejects only that record; each failure yields a specific error. |
 | Backup | Round-trip; invalid files rejected with a specific error; import never partially applies; `lastAcknowledgedId` survives a reload. |
@@ -449,7 +453,7 @@ Not unit-tested, and reported as such: SVG rendering, layout, the real Web Locks
 Each step is one commit (or a short series) that builds and passes the suite on its own.
 
 1. Scaffold: Vite, TypeScript, React, Tailwind, ESLint, formatter, Vitest; CI workflow; an empty app that deploys.
-2. Types, errors, `storage-coerce`, `storage-load`, `storage-save`, and tests. (`time-local` moves to step 8 with its first user.)
+2. Types, errors, `storage-coerce`, `storage-load`, `storage-save`, and tests. (`time-local` moved to step 6 with its first user.)
 3. `session-resolve` and `session-reduce`, tests first.
 4. Store, app controller and owner lock, Focus screen, `useSessionRunner`, `StatusBanner`, with a placeholder tree.
 5. Species catalog, growth stages, `TreeSprite`.

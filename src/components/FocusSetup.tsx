@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { timerMaxMs, timerMinMs, timerStepMs } from '../lib/config.ts';
 import { durationClamp } from '../lib/duration-clamp.ts';
 import { speciesStarter } from '../lib/species-catalog.ts';
@@ -9,10 +8,22 @@ import { TreeSprite } from './TreeSprite.tsx';
 
 const MINUTE_MS = 60_000;
 
-export function FocusSetup({ store, state }: { store: StoreApp; state: AppState }) {
+export type FocusSetupChoice = { readonly mode: 'countdown' | 'stopwatch'; readonly durationMs: number };
+
+/** The choice lives above this screen so it survives switching to another screen and back. */
+export function FocusSetup({
+  store,
+  state,
+  choice,
+  onChoiceChange,
+}: {
+  store: StoreApp;
+  state: AppState;
+  choice: FocusSetupChoice;
+  onChoiceChange: (choice: FocusSetupChoice) => void;
+}) {
   const { settings } = state.data;
-  const [mode, setMode] = useState<'countdown' | 'stopwatch'>('countdown');
-  const [durationMs, setDurationMs] = useState(() => durationClamp(settings.defaultDurationMs));
+  const { mode, durationMs } = choice;
   const canStart = idAvailable();
   const settingsLocked = state.guard.corrupt.settings !== undefined;
 
@@ -45,7 +56,7 @@ export function FocusSetup({ store, state }: { store: StoreApp; state: AppState 
             role="radio"
             aria-checked={mode === option}
             className={`rounded border px-3 py-1 ${mode === option ? 'border-accent bg-accent text-accent-ink' : 'border-line'}`}
-            onClick={() => setMode(option)}
+            onClick={() => onChoiceChange({ ...choice, mode: option })}
           >
             {option === 'countdown' ? 'Countdown' : 'Stopwatch'}
           </button>
@@ -61,7 +72,7 @@ export function FocusSetup({ store, state }: { store: StoreApp; state: AppState 
             max={timerMaxMs / MINUTE_MS}
             step={timerStepMs / MINUTE_MS}
             value={durationMs / MINUTE_MS}
-            onChange={(event) => setDurationMs(durationClamp(Number(event.target.value) * MINUTE_MS))}
+            onChange={(event) => onChoiceChange({ ...choice, durationMs: durationClamp(Number(event.target.value) * MINUTE_MS) })}
           />
         </label>
       ) : (
