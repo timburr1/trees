@@ -1,4 +1,5 @@
 import { timerMaxMs, timerMinMs } from './config.ts';
+import { speciesOwned } from './species-owned.ts';
 import { sessionResolve } from './session-resolve.ts';
 import type { Persisted, SessionActive, SessionFinished, SessionMode, SessionOutcome } from './types.ts';
 
@@ -18,7 +19,8 @@ export type SessionAction =
   | { readonly kind: 'sessionStop'; readonly now: number };
 
 /** Races a user can cause by acting on a stale screen. Programming mistakes throw instead. */
-export type SessionRejection = 'session-already-active' | 'no-active-session' | 'already-paused' | 'pause-used' | 'not-paused' | 'unknown-tag';
+export type SessionRejection =
+  'session-already-active' | 'no-active-session' | 'already-paused' | 'pause-used' | 'not-paused' | 'unknown-tag' | 'species-not-owned';
 
 export type SessionReduceResult = {
   readonly state: Persisted;
@@ -86,6 +88,9 @@ function actionApply(state: Persisted, action: SessionAction): SessionReduceResu
       const { tagId } = action;
       if (tagId !== undefined && !state.tags.some((tag) => tag.id === tagId && tag.archivedAt === undefined)) {
         return resultReject(state, 'unknown-tag');
+      }
+      if (!speciesOwned(state, action.speciesId)) {
+        return resultReject(state, 'species-not-owned');
       }
       const active: SessionActive = {
         id: action.id,

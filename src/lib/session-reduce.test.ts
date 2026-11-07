@@ -4,7 +4,7 @@ import { coerceSessionActive, coerceSessionFinished } from './storage-coerce.ts'
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
 import { storageSave } from './storage-save.ts';
 import type { Persisted, SessionActive, SessionMode } from './types.ts';
-import { persistedMake, sessionActiveMake, sessionFinishedMake, settingsMake, tagMake } from '../test/fixtures.ts';
+import { persistedMake, purchaseMake, sessionActiveMake, sessionFinishedMake, settingsMake, tagMake } from '../test/fixtures.ts';
 import { storageFakeMake } from '../test/storage-fake.ts';
 
 const MIN = 60_000;
@@ -65,6 +65,27 @@ describe('sessionStart', () => {
   it('accepts a stopwatch', () => {
     const result = reduce(persistedMake(), actionStart({ mode: stopwatch }));
     expect(result.state.active?.mode).toEqual(stopwatch);
+  });
+
+  it('rejects a paid species the player has not bought, and an id the catalog lacks, leaving the state untouched', () => {
+    const state = persistedMake();
+    for (const speciesId of ['pine', 'from-a-newer-version', 'unknown']) {
+      const result = reduce(state, actionStart({ speciesId }));
+      expect(result.rejection).toBe('species-not-owned');
+      expect(result.state).toBe(state);
+    }
+  });
+
+  it('starts a paid species once it is bought', () => {
+    const state = persistedMake({ purchases: [purchaseMake({ speciesId: 'pine' })] });
+    const result = reduce(state, actionStart({ speciesId: 'pine' }));
+    expect(result.rejection).toBeUndefined();
+    expect(result.state.active?.speciesId).toBe('pine');
+  });
+
+  it('reports a running session before an unowned species', () => {
+    const result = reduce(stateRunning({ lastSeenAt: t0 }), actionStart({ id: 's2', speciesId: 'pine', now: t0 + 1_000 }));
+    expect(result.rejection).toBe('session-already-active');
   });
 
   it('rejects a second session while one is running, leaving the state untouched', () => {
