@@ -1,3 +1,4 @@
+import { coinsEarned } from '../lib/coins.ts';
 import { growthFinished, sessionFinishedActiveMs } from '../lib/session-growth.ts';
 import { speciesResolve } from '../lib/species-catalog.ts';
 import type { StoreApp } from '../lib/store-app.ts';
@@ -17,6 +18,7 @@ function outcomeLabel(outcome: SessionOutcome): string {
 
 export function FocusResult({ store, session }: { store: StoreApp; session: SessionFinished }) {
   const tree = growthFinished(session);
+  const coins = coinsEarned(session);
   const activeMinutes = Math.round(sessionFinishedActiveMs(session) / 60_000);
   return (
     <section className="space-y-4 text-center" role="status">
@@ -25,6 +27,11 @@ export function FocusResult({ store, session }: { store: StoreApp; session: Sess
       </div>
       <h1 className="text-xl font-semibold">{outcomeLabel(session.outcome)}</h1>
       <p>{activeMinutes} minutes of focus</p>
+      {coins > 0 ? (
+        <p>
+          +{coins} {coins === 1 ? 'coin' : 'coins'}
+        </p>
+      ) : null}
       <button type="button" className="rounded bg-accent px-5 py-2 text-accent-ink" onClick={() => store.uiAcknowledge(session.id)}>
         Done
       </button>
