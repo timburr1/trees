@@ -4,7 +4,8 @@ import { selectResultPending, storeAppMake, type StoreApp } from './store-app.ts
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
 import { storageSave } from './storage-save.ts';
 import type { Persisted } from './types.ts';
-import { persistedMake, purchaseMake, sessionActiveMake, sessionFinishedMake, settingsMake, uiMake } from '../test/fixtures.ts';
+import { speciesCatalog } from './species-catalog.ts';
+import { persistedMake, purchaseMake, sessionsWithCoins, sessionActiveMake, sessionFinishedMake, settingsMake, uiMake } from '../test/fixtures.ts';
 import { storageFakeMake, type StorageFake } from '../test/storage-fake.ts';
 
 const MIN = 60_000;
@@ -29,6 +30,10 @@ function harnessMake(data: Persisted | undefined = undefined, raw: Record<string
   const storage = storageFakeMake(raw);
   if (data) {
     seed(storage, data);
+    // Raw text goes in after the seed, which would otherwise overwrite a slice the test wants unreadable.
+    for (const [key, text] of Object.entries(raw)) {
+      storage.data.set(key, text);
+    }
   }
   const logs: string[] = [];
   const fenced = { count: 0 };
@@ -323,6 +328,73 @@ describe('storeAppMake: corrupt sessions', () => {
     store.settingsSet(settingsMake({ strictness: 'relaxed' }));
     expect(storage.getItem(storageKey('settings'))).toContain('relaxed');
     expect(storage.getItem(storageKey('sessions'))).toBe('{not json');
+  });
+});
+
+describe('storeAppMake: purchaseBuy', () => {
+  const pineCost = speciesCatalog.find((species) => species.id === 'pine')?.cost ?? 0;
+  const rich = (extra: Partial<Persisted> = {}) => persistedMake({ sessions: sessionsWithCoins(pineCost * 2), ...extra });
+  const buy = (store: StoreApp, id = 'p1') => store.purchaseBuy({ id, speciesId: 'pine', now: t0 });
+  const purchasesKey = storageKey('purchases');
+
+  it('commits and persists a purchase', () => {
+    const { store, storage } = harnessMake(rich());
+    const result = buy(store);
+    expect(result?.rejection).toBeUndefined();
+    expect(store.getState().data.purchases.map((entry) => entry.speciesId)).toEqual(['pine']);
+    expect(storage.getItem(purchasesKey)).toContain('pine');
+  });
+
+  it('writes only the purchases key, even while a session is running', () => {
+    const { store, storage } = harnessMake(rich({ active: sessionActiveMake({ id: 's1', startedAt: t0, lastSeenAt: t0 }) }));
+    buy(store);
+    expect(storage.log).toEqual([`set:${purchasesKey}`]);
+  });
+
+  it('charges once when the same species is bought twice in a row', () => {
+    const { store } = harnessMake(rich());
+    expect(buy(store, 'p1')?.rejection).toBeUndefined();
+    expect(buy(store, 'p2')?.rejection).toBe('already-owned');
+    expect(store.getState().data.purchases).toHaveLength(1);
+  });
+
+  it('is ignored, with nothing written, when the purchases slice is unreadable, and says so with a blocking entry', () => {
+    const { store, storage } = harnessMake(rich(), { [purchasesKey]: '{nope' });
+    expect(buy(store)).toBeUndefined();
+    expect(storage.log).toEqual([]);
+    expect(storage.getItem(purchasesKey)).toBe('{nope');
+    expect(store.getState().status.some((entry) => entry.code === 'purchases-corrupt' && entry.blocking)).toBe(true);
+  });
+
+  it('is ignored when a purchase record was rejected, so a species that looks unowned cannot be charged twice', () => {
+    const { store, storage } = harnessMake(rich(), { [purchasesKey]: JSON.stringify([{ cost: 1.5 }]) });
+    expect(store.getState().guard.rejected.purchases).toHaveLength(1);
+    expect(buy(store)).toBeUndefined();
+    expect(storage.log).toEqual([]);
+  });
+
+  it('is ignored when the session history is unreadable', () => {
+    const { store, storage } = harnessMake(undefined, { [storageKey('sessions')]: '{not json' });
+    expect(buy(store)).toBeUndefined();
+    expect(storage.log).toEqual([]);
+  });
+
+  it('is ignored once another tab owns the data', () => {
+    const { store, storage, fenced } = harnessMake(rich());
+    storage.data.set(ownerKey, 'tab-b');
+    expect(buy(store)).toBeUndefined();
+    expect(fenced.count).toBe(1);
+    expect(storage.log).toEqual([]);
+  });
+
+  it('keeps the purchase in memory on a quota failure and writes it on the next commit', () => {
+    const { store, storage } = harnessMake(rich());
+    storage.setItemFailNext = quotaError();
+    buy(store);
+    expect(store.getState().data.purchases).toHaveLength(1);
+    expect(storage.getItem(purchasesKey)).not.toContain('pine');
+    store.settingsSet(settingsMake({ strictness: 'relaxed' }));
+    expect(storage.getItem(purchasesKey)).toContain('pine');
   });
 });
 

@@ -1,4 +1,5 @@
 import { ErrorStorageQuota } from './errors.ts';
+import { purchaseBuy, type PurchaseRequest, type PurchaseResult } from './purchase-buy.ts';
 import { sessionReduce, type SessionAction, type SessionReduceResult } from './session-reduce.ts';
 import { speciesUnknownCount } from './species-catalog.ts';
 import { storageLoad } from './storage-load.ts';
@@ -45,6 +46,8 @@ export type StoreApp = {
   readonly subscribe: (listener: () => void) => () => void;
   /** Returns undefined when the store ignored the action (sessions blocked, or this tab lost ownership). */
   readonly sessionDispatch: (action: SessionAction) => SessionReduceResult | undefined;
+  /** Returns undefined when the store ignored the request: see `selectPurchasesBlock`, or this tab lost ownership. */
+  readonly purchaseBuy: (request: PurchaseRequest) => PurchaseResult | undefined;
   readonly settingsSet: (settings: Settings) => void;
   readonly uiAcknowledge: (sessionId: string) => void;
   readonly statusSet: (entry: StatusInput) => void;
@@ -58,6 +61,23 @@ export type StoreApp = {
 export function selectResultPending(state: AppState): SessionFinished | undefined {
   const last = state.data.sessions.at(-1);
   return last && last.id !== state.data.ui.lastAcknowledgedId ? last : undefined;
+}
+
+/** Why buying is off, if it is. Each reason means the balance or the owned list cannot be trusted, or a purchase could not be saved. */
+export type PurchasesBlock = 'sessions-unreadable' | 'purchases-unreadable' | 'purchases-rejected';
+
+export function selectPurchasesBlock(state: AppState): PurchasesBlock | undefined {
+  if (state.sessionsBlocked) {
+    return 'sessions-unreadable';
+  }
+  if (state.guard.corrupt.purchases !== undefined) {
+    return 'purchases-unreadable';
+  }
+  // A rejected record is kept on disk but not counted, so its species would look unowned and a second purchase could charge twice.
+  if (state.guard.rejected.purchases !== undefined) {
+    return 'purchases-rejected';
+  }
+  return undefined;
 }
 
 const saveCodes = ['save-quota', 'save-failed'];
@@ -115,6 +135,15 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
       code: 'sessions-corrupt',
       severity: 'error',
       message: 'Your session history could not be read, so sessions are disabled to avoid overwriting it. The raw text is kept below.',
+      blocking: true,
+    });
+  }
+
+  if (loaded.guard.corrupt.purchases !== undefined) {
+    status = statusWith(status, {
+      code: 'purchases-corrupt',
+      severity: 'error',
+      message: 'Your purchases could not be read, so buying is disabled to avoid overwriting them. Coins and owned species are not shown until this is fixed.',
       blocking: true,
     });
   }
@@ -197,6 +226,19 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
       };
     },
     sessionDispatch,
+    purchaseBuy: (request) => {
+      if (dead || selectPurchasesBlock(state) !== undefined) {
+        return undefined;
+      }
+      const result = purchaseBuy(state.data, request);
+      if (result.rejection !== undefined) {
+        log(`purchase of ${request.speciesId} rejected: ${result.rejection}`);
+      }
+      if (result.state !== state.data && !commit(result.state)) {
+        return undefined;
+      }
+      return result;
+    },
     settingsSet: (settings) => {
       commit({ ...state.data, settings });
     },
