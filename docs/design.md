@@ -256,6 +256,7 @@ A held Web Lock may keep a page out of the back/forward cache in some browsers; 
 | `trees:v1:purchases` | `Purchase[]` (`id`, `speciesId`, `at`, whole-number `cost`; deduplicated by `id` on load) | on purchase |
 | `trees:v1:settings` | `Settings` | on settings edit |
 | `trees:v1:ui` | `{ lastAcknowledgedId, lastExportedAt }` | on dismiss or export |
+| `trees:v1:sync` | `{ userId, watermark, lastSyncedAt, pending[] }`; sync bookkeeping, kept out of backups (section 13) | by the sync controller |
 
 `active` has its own key so a tick rewrites 200 bytes and never the session history. The storage code takes a `Storage` (the DOM interface) as a parameter; tests pass a `Map`-backed fake.
 
@@ -397,9 +398,12 @@ src/
     storage-save.ts             storageSave(prev, next, storage, guard): ordered per-slice writes; storageReplace: write everything, or put everything back
     install-env.ts              installEnvParse: iOS and standalone from user agent, platform, touch, display mode
     install-note.ts             installNote: which install guidance to show
-    tag-edit.ts                 tagCreate, tagArchive, tagsActive, tagChosenEffective
+    tag-edit.ts                 tagCreate, tagArchive, tagsActive, tagsCanonical, tagCanonicalMap (same-name tags read as one), tagChosenEffective
+    sync-wire.ts                SyncRecord types, syncRecordsAll, syncPendingDiff, syncRecordFind, syncPulledCoerce (section 13)
+    sync-merge.ts               syncMerge: union of pulled records into the local forest
+    sync-state.ts               SyncMeta in `trees:v1:sync`: syncMetaLoad, syncMetaSave
     backup.ts                   backupSerialize, backupParse (import is storageLoad over the file)
-    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid, ErrorStorageRollback
+    errors.ts                   ErrorStorageCorrupt, ErrorStorageQuota, ErrorPlatformUnsupported, ErrorImportInvalid, ErrorStorageRollback, ErrorSyncAuth, ErrorSyncDenied, ErrorSyncAccount, ErrorSyncServer, ErrorSyncResponse
   platform/                     thin browser wrappers
     id.ts                       crypto.randomUUID, secure context only
     file-save.ts                fileSave: Blob download, or the share sheet in an installed iOS app
@@ -407,16 +411,20 @@ src/
     app-update.ts               appUpdateMake: service worker registration, update status, hourly check (section 4)
     owner-lock.ts               ownerLockAcquire, ownerLockSteal (section 5.4)
     app-controller.ts           owner lock, store lifetime, bfcache, storage-unavailable (section 5.4)
+    sync-api.ts                 syncApiMake(fetch): authMe, push, pull, with status mapped to typed errors
+    sync-controller.ts          syncControllerMake: push, pull, pending queue, account link (section 13)
     wake-lock.ts                wakeLockMake (section 5.5)
     chime.ts
   hooks/
     useApp.ts                   controller status via useSyncExternalStore
     useAppUpdate.ts             update status via useSyncExternalStore
     useStore.ts                 select from the store
+    useSyncStatus.ts            sync status via useSyncExternalStore
     useClock.ts                 render clock
     usePeriodView.ts            period, range, and navigation shared by Forest and Stats; owns the minute clock
     useSessionRunner.ts         section 5.5
   components/                   section 10 (PeriodNav is the switch and previous/next shared by Forest and Stats)
+api/                            Azure Functions project (section 13): src/model.ts (pure), sync-handler.ts, cosmos.ts, functions/sync.ts
 public/
   favicon.svg
   icons/                        192, 512, maskable
@@ -429,31 +437,45 @@ Dependencies point one way: `components → hooks → lib`, and `hooks → platf
 
 ## 12. Deployment
 
-Azure Static Web Apps, Free plan, deployed from GitHub Actions on every push to `main`, with preview environments for PRs. The free plan limits how many preview environments can exist at once (I believe three; check), so close PRs promptly. There is no `api/` directory in the prototype.
+Azure Static Web Apps, Free plan, deployed from GitHub Actions on every push to `main`, with preview environments for PRs. The free plan limits how many preview environments can exist at once (I believe three; check), so close PRs promptly. `api/` holds the managed Functions API (section 13).
 
 - The workflow file name must stay `azure-static-web-apps-<adjective>-<noun>-<hex>.yml` as Azure generated it: with OIDC, Azure finds the app from that name, and a rename fails the deploy with "Could not determine the Static Web App".
-- The workflow runs `npm ci`, lint, test, build, then uploads `dist/`. It mirrors mello's workflow minus the Functions build.
-- `public/staticwebapp.config.json` is copied to `dist/` by Vite. It sets `navigationFallback` to `/index.html`, and its `exclude` list must cover `/manifest.webmanifest`, `/icons/*`, `/favicon.svg`, `/sw.js`, and `/workbox-*.js` (mello's CLAUDE.md warns about exactly this); `src/platform/swa-config.test.ts` fails when a root-level file in `public/` is missing from it. Whether SWA honors `*` in the middle of a file name is not documented, so the deployed site is the check. The `Content-Security-Policy` is `default-src 'self'` with the service worker registered through the virtual module, not inline; `worker-src` and `manifest-src` fall back to `default-src`, and `img-src` needs no exception while no image uses `data:` or `blob:` URLs. It sets `X-Content-Type-Options` and `Referrer-Policy`. No auth section.
+- The workflow runs `npm ci` (root and `api/`), format check, lint, test, `build`, and `build:api`, then uploads `dist/` and the API sources (no `node_modules`) as an `api` artifact. The deploy job downloads it to `api/` and passes `api_location: 'api'`. The deploy action has no way to skip the API build, so Azure still runs `npm install` for the API's two Microsoft packages inside the deploy job, which is the one holding the token.
+- **Azure settings the user sets by hand** on the Static Web App: `COSMOS_CONNECTION_STRING` (from mello's account), `ALLOWED_USERS` (comma-separated GitHub logins; unset refuses everyone), and optionally `COSMOS_DATABASE` and `COSMOS_CONTAINER` (defaults `trees` and `records`). Check whether preview environments share the production settings.
+- `public/staticwebapp.config.json` is copied to `dist/` by Vite. It sets `navigationFallback` to `/index.html`, and its `exclude` list must cover `/manifest.webmanifest`, `/icons/*`, `/favicon.svg`, `/sw.js`, and `/workbox-*.js` (mello's CLAUDE.md warns about exactly this); `src/platform/swa-config.test.ts` fails when a root-level file in `public/` is missing from it. Whether SWA honors `*` in the middle of a file name is not documented, so the deployed site is the check. The `Content-Security-Policy` is `default-src 'self'` with the service worker registered through the virtual module, not inline; `worker-src` and `manifest-src` fall back to `default-src`, and `img-src` needs no exception while no image uses `data:` or `blob:` URLs. It sets `X-Content-Type-Options` and `Referrer-Policy`. `routes` restricts `/api/*` to `authenticated`, `platform.apiRuntime` is `node:22`, and `/api/*` joins the fallback `exclude`. Sign-in is Azure's built-in GitHub provider.
 - The service worker caches the app shell only (section 4).
 - Free-plan bandwidth, storage, and domain limits are far above a small static bundle's needs. Check the current numbers before relying on any.
 
-## 13. Phase 2: sync (not built)
+## 13. Phase 2: sync
 
-Goal: the same forest on phone and laptop, built after the local prototype works. Mello already runs this pattern as a static app with a managed Functions API in the same Static Web Apps resource, so the hosting model does not change. Reuse mello's `api/` project and client sync code as the starting point.
+Goal: the same forest on phone and laptop. Signing in turns sync on; signed out, the app is fully local, as in phase 1. One user is the target, so access is an allow-list, not open sign-up. Mello already runs this pattern (a static app with a managed Functions API in the same Static Web Apps resource), and `api/` follows its layout with the code rewritten to this repo's rules.
 
-What the data model already gives:
+**Local-first stays.** `localStorage` is the working copy. Sync is a background push (two seconds after a new record appears) and a pull (on start, when the page becomes visible, when the browser comes back online, and on demand). A failure is logged and retried at the next trigger.
 
-- Finished sessions, purchases, and tag creations are **append-only and immutable**. Merging two devices is a union by `id`, with no last-write-wins and no tombstones for those collections.
-- **Purchases need one more rule.** Two devices that each buy Pine create two different ids, and a plain union would charge twice. The merge keeps only the earliest purchase per species and drops later ones. It belongs to the merge alone: a backup import replaces everything and loads like storage, so it has nothing to merge. Define the rule with the merge code, before either exists.
-- Mutable data is limited to tag archive and settings. Add `updatedAt` to those at that point (not before) and reuse mello's last-write-wins rule.
+**What syncs.** Only finished history: sessions, purchases, and tags. **Settings do not sync** (strictness and sound are per-device choices, and leaving them out removes `updatedAt`, last-write-wins, and the clock dependence). **The running session does not sync**: a timer belongs to one device, and the second device shows nothing until the session finishes. `ui` and `active` stay local.
 
-Changes from mello:
+**Wire model.** One Cosmos document per record, `{ id: 'kind:id', userId, kind, recordId, data, syncedAt }`, in database `trees`, container `records`, partition `/userId`. Kinds: `session`, `purchase`, `tag` (the creation record: `id`, `name`, `createdAt`), and `tag-archive` (`tagId`, `archivedAt`; its own immutable record, so nothing is ever rewritten in the cloud). The database is the shared one in mello's account at 400 RU/s, database-level, never dedicated container throughput (dedicated throughput is what makes a free account billable; with mello's 400 that is 800, under the free 1000). The container's indexing excludes `/*` except `/syncedAt/?`, so writes stay cheap.
 
-- **Database:** a separate `trees` database in mello's existing Cosmos account. The free tier allows one account per subscription, so a second account would bill. Throughput is 400 RU/s shared at the database level, never dedicated to a container (dedicated throughput is what makes a free account billable). Together with mello's 400, that is 800 RU/s, under the free 1000. Keep mello's account-wide throughput limit.
-- **Auth:** SWA's built-in GitHub sign-in, with `userId` taken from `x-ms-client-principal`, never from the request body.
-- **Local-first stays:** `localStorage` remains the working copy. Sync is a debounced background push and a pull on open.
-- **Running trees on a second device:** push the active session once, at start. The second device draws growth from `startedAt` and `plannedMs` with no live feed (a per-second write to Cosmos would waste RUs). Its limit is that only the running device knows the page was hidden, and a suspended phone cannot reliably push a failure. The second device may show a living tree until the planned end and then correct itself on the next sync. Active sessions are otherwise never merged; a running timer belongs to one device.
-- **Owner tab (5.4)** still applies per device. Sync pulls go through the same dispatch path as local actions.
+**The server is insert-only and opaque.** `POST /api/sync` takes up to 100 `{ kind, id, data }` records and answers per record: `stored`, `exists` (Cosmos answered 409, which counts as acknowledged), or `rejected` (bad shape, so one bad record never fails the batch). It checks structure only: a known kind, an `id` of `[A-Za-z0-9_-]{1,100}` equal to `data.id` (`data.tagId` for archives), and a `data` object under 4 KB. `GET /api/sync?since=<iso>&limit=<n>` returns `{ records, more }` ordered by `syncedAt`, inclusive of `since`. `userId` and the stored key come from `x-ms-client-principal`, never from the body. Only GitHub logins in the `ALLOWED_USERS` setting may call it (unset refuses everyone with a 403; a login from another identity provider never matches, and `/.auth/login/aad` answers 404 because Static Web Apps enables Entra ID by default), and the client sends `x-trees-user`, which must equal the principal or the server answers 409, so an account switch mid-flight cannot write into another partition.
+
+**The client validates what it pulls.** Each pulled record goes through the same `coerce*` functions as stored data (`syncPulledCoerce`). One that fails is kept in `guard.rejected` for its slice, so it is neither applied nor lost, and a rejected purchase blocks buying as a local one does. Applying a pull is refused while the `sessions`, `purchases`, or `tags` slice is unreadable, and the watermark does not advance then or when the save fails.
+
+**Merge (`sync-merge.ts`, pure).**
+
+- Sessions: union by `id`. A new remote session is inserted by `endedAt` among the local ones, **never after a locally pending result**, so the result screen does not jump to another device's session. When no result is pending, `lastAcknowledgedId` moves to the new last session, so pulled history never pops up as a result.
+- Purchases: union by `id`, then **only the earliest purchase per species stays** (`at`, then `id`), re-applied on every pull so devices converge; a local purchase that loses is removed. Two devices that spend the same coins on different species can leave a negative balance, which is accepted. A backup import still replaces everything and never merges.
+- Tags: union by `id`; an archive record sets `archivedAt`, earliest wins.
+- Tags with the same name from two devices (the common case for anyone who used both before sync) both stay in storage and sessions keep their ids. `tagCanonicalMap` maps each to the earliest-created tag of that name (id breaks ties); the tag list offers only canonical, non-archived tags, stats group by canonical id, and a group is archived when any member is.
+
+**Bookkeeping lives in the controller, not the store.** `trees:v1:sync` holds `{ userId, watermark, lastSyncedAt, pending[] }`, in its own key so a backup and a replace never touch it. `pending` holds `kind:id` keys. The controller computes them from store changes (`syncPendingDiff`, which short-circuits on unchanged references so the per-second tick costs nothing) and ignores the change its own pull causes. The first sign-in queues every local record, uploaded in order tags, archives, purchases, sessions, 100 at a time. Only the keys sent are cleared after a response; a key whose record no longer exists (a purchase that lost) is dropped with a log line; a `rejected` result is dropped with a status entry so one bad record cannot jam sync. A corrupt `trees:v1:sync` turns sync off with a message and is never overwritten.
+
+**Watermark.** A pull follows `more` until done, advancing by the last `syncedAt` and failing if a page does not move forward. It then stores the newest `syncedAt` it saw minus 60 seconds (never moving back, and unchanged by an empty pull). It is server time, so a device with a wrong clock cannot skip records. The margin exceeds the function timeout, so a slow push whose records got an earlier server time is still seen next time; seeing a record twice is harmless because applying one is idempotent. A reset, an import, or an unlink while a pull is in flight discards that pull, which belongs to the old data.
+
+**Reset and Import are local-only.** Both change this device and say so (the confirmation notes that the cloud copy returns on the next sync). The store counts replaces (`replaceCount`); on a change the controller clears the watermark and queues every record of the new data, so Reset pulls the cloud copy back and Import merges with it. A different account signing in on a linked device shows a blocking entry until the device is unlinked in Settings (which clears `trees:v1:sync`; nothing is deleted).
+
+**Controller.** `syncControllerMake` follows `AppController`: it binds when the app is `ready`, rebinds on a new store (steal, bfcache), and unbinds otherwise. One request at a time, with a re-run flag. Status is `off`, `signed-out`, `idle`, `syncing`, `offline`, or `error`. 401 means signed out; a network failure means offline (no banner); 403, 5xx, and a malformed answer show an error and a `sync-error` status entry that clears on the next success.
+
+**Hosting.** `public/staticwebapp.config.json` restricts `/api/*` to the `authenticated` role, sets `platform.apiRuntime: node:22`, and excludes `/api/*` from the navigation fallback; the service worker's `navigateFallbackDenylist` also skips `/api/` and `/.auth`, so the sign-in redirect reaches Azure. Sign-in and sign-out are Azure's `/.auth/login/github` and `/.auth/logout`.
 
 ## 14. Testing
 
@@ -493,6 +515,7 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 8. Stats (without the per-tag breakdown).
 9. Settings, tag management, `statsTag` and its breakdown, backup export and import (done).
 10. PWA manifest, icons, service worker, update prompt, install notes, SWA and CSP config (done).
+11. Phase 2: sync across devices (done, section 13): merge rules, the API, the client controller, and the Settings section. Needs the Azure settings in section 12 and the two-device smoke test.
 
 **Before step 4 finishes, test strict mode on a real phone** (open question 1).
 
@@ -506,6 +529,9 @@ Each step is one commit (or a short series) that builds and passes the suite on 
 | Two tabs corrupt data | Resurrected or duplicated sessions | Owner lock, dedupe by id, write ordering (sections 5.3, 5.4) |
 | Absence erased by event ordering | A tree survives sleep it should not | Single `sessionTouch` action, resolve first (section 5.2) |
 | Clock changes (manual edit, NTP, DST, travel) | Wrong elapsed time | Epoch ms is immune to DST and zone; a forward jump over the grace period while visible fails a strict session, which is accepted; day bucketing uses the zone at read time, so travel reshuffles past days and can break or extend a streak, also accepted |
+| The GitHub sign-in redirect leaves an installed iOS app | Sync cannot start from the home-screen app | Test `/.auth/login/github` there; if it fails, sync works from the browser and Settings says so |
+| Two devices buy different species with the same coins | Negative coin balance | Accepted and documented (section 13); the earliest purchase per species still wins |
+| Cosmos RU limits or a function timeout | Sync errors or slow pulls | Insert-only writes, minimal indexing, 400 RU/s shared; the 60 s watermark margin assumes a function timeout near 45 s (verify) |
 | Procedural SVG trees look flat | The app feels cheap | Isolated behind `TreeSprite` and species data |
 
 ## 17. Decisions and open questions
@@ -515,7 +541,7 @@ Decided:
 - **Desktop-first is acceptable.** Strict stays the default with a 15 s grace period and a relaxed option. If real-device testing shows phones are unusable in strict mode, the remaining choices are relaxed by default on touch devices or a first-run choice (open question 1).
 - **Stopwatch mode and one free pause per session are in the prototype** (section 5.1).
 - **Formatter: Prettier at width 160** alongside ESLint.
-- **Sync is phase 2** (section 13).
+- **Sync is built** (section 13): one user, allow-listed; Reset and Import local-only; settings and the running session do not sync; signing in turns it on.
 
 Still open, each with the default the design assumes:
 

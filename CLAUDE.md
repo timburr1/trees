@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Trees is a Forest-style focus timer with no ads, no accounts, and no multiplayer: start a timer, a tree grows, leave and it dies. It is a React + Vite + TypeScript PWA deployed as a static site to Azure Static Web Apps (free tier). The architecture lives in `docs/design.md`; read it before changing structure, and update it when a decision in it changes.
 
-Status: scaffolded (design step 1); the app is a placeholder.
+Status: phase 1 (the local app) and phase 2 (sync across devices) are built; sync needs the Azure settings in design section 12.
 
 ```bash
 npm install
 npm run dev            # Vite dev server
 npm run build          # tsc -b (the type-check gate), then vite build -> dist/
+npm run build:api      # compile the Functions project in api/ (run `npm ci` there first)
 npm run preview        # serve dist/
 npm run lint           # eslint, type-checked; no-floating-promises is an error
 npm run format         # prettier --write (width 160); format:check is the CI form
@@ -19,7 +20,7 @@ npm test               # vitest run, TZ pinned to America/Denver
 npm run test:watch
 ```
 
-CI (`.github/workflows/azure-static-web-apps-white-ocean-0e5fe2410.yml`) runs format:check, lint, test, and build before deploying `dist/`. `public/staticwebapp.config.json` is copied into `dist/` and holds the CSP and the navigation fallback; add new root-level files in `public/` to its `exclude` list.
+CI (`.github/workflows/azure-static-web-apps-white-ocean-0e5fe2410.yml`) runs format:check, lint, test, build, and build:api before deploying `dist/` and `api/`. `api/` is a separate npm project (own `package.json`; its tests run from the root `npm test`). It needs `COSMOS_CONNECTION_STRING` and `ALLOWED_USERS` to run; copy `api/local.settings.sample.json` to `api/local.settings.json` for local use, with Azure Functions Core Tools v4 and the SWA CLI (`npx @azure/static-web-apps-cli start dist --api-location api`). The CLI mints a new user id per login, so it cannot emulate one account on two devices. `public/staticwebapp.config.json` is copied into `dist/` and holds the CSP and the navigation fallback; add new root-level files in `public/` to its `exclude` list.
 
 ## Working agreements
 

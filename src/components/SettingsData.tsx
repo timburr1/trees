@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useStore } from '../hooks/useStore.ts';
+import { useSyncStatus } from '../hooks/useSyncStatus.ts';
 import { backupParse, backupRejectedCount, backupSerialize, backupSlices, type BackupParsed } from '../lib/backup.ts';
 import { ErrorImportInvalid } from '../lib/errors.ts';
 import { storageLoadEmpty } from '../lib/storage-load.ts';
 import type { StoreApp } from '../lib/store-app.ts';
 import type { FileSave } from '../platform/file-save.ts';
+import type { SyncController } from '../platform/sync-controller.ts';
 import { CorruptRaw } from './CorruptRaw.tsx';
 import { InstallNote } from './InstallNote.tsx';
 
@@ -15,11 +17,12 @@ function dateStamp(ms: number): string {
 }
 
 /** Export, import, and reset, plus the raw text of any slice that could not be read. Import and Reset replace everything, so each asks first. */
-export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: FileSave }) {
+export function SettingsData({ store, fileSave, sync }: { store: StoreApp; fileSave: FileSave; sync: SyncController }) {
   const guard = useStore(store, (state) => state.guard);
   const running = useStore(store, (state) => state.data.active !== undefined && !state.sessionsBlocked);
   const sessionCount = useStore(store, (state) => state.data.sessions.length);
   const lastExportedAt = useStore(store, (state) => state.data.ui.lastExportedAt);
+  const syncLinked = useSyncStatus(sync).linked;
   const [pending, setPending] = useState<BackupParsed | undefined>(undefined);
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState('');
@@ -83,6 +86,8 @@ export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: F
   }
 
   const replaceWarning = damaged ? ' Records this app could not read are deleted too.' : '';
+  // Reset and Import change this device only, so the cloud copy comes back (or merges in) on the next sync.
+  const syncNote = syncLinked ? ' This device syncs: the cloud copy is not deleted and returns on the next sync.' : '';
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">Backup</h2>
@@ -132,7 +137,10 @@ export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: F
             {pending.counts.purchases} purchases
             {pending.counts.rejected > 0 ? `, and ${pending.counts.rejected} records that are not valid (kept, not counted)` : ''}.
           </p>
-          <p>Importing replaces everything stored here.{replaceWarning}</p>
+          <p>
+            Importing replaces everything stored here.{replaceWarning}
+            {syncNote}
+          </p>
           <div className="flex gap-2">
             {/* The panel appears where the pointer or focus was, so focus moves to its first action. */}
             <button type="button" autoFocus className="rounded border border-red-500 px-3 py-1" onClick={onImportConfirm}>
@@ -147,7 +155,9 @@ export function SettingsData({ store, fileSave }: { store: StoreApp; fileSave: F
       <h2 className="text-lg font-semibold">Reset</h2>
       {resetting ? (
         <div className="space-y-2 text-sm">
-          <p>This deletes every session, tag, purchase, and setting.{replaceWarning} Export a backup first if you might want them back.</p>
+          <p>
+            This deletes every session, tag, purchase, and setting.{replaceWarning} Export a backup first if you might want them back.{syncNote}
+          </p>
           <div className="flex gap-2">
             <button type="button" autoFocus className="rounded border border-red-500 px-3 py-1" onClick={onResetConfirm}>
               Yes, delete everything

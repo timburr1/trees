@@ -193,3 +193,24 @@ UI is not unit-tested; this is the only coverage.
 
 - [ ] After one online load, switch the network off and reload: the app opens and a session can start.
 - [ ] Installed iOS app: Wake Lock keeps the screen on during a session, and the chime plays. Note the result; design section 3 lists both as unverified.
+
+## Sync (phase 2)
+
+Prerequisites: `COSMOS_CONNECTION_STRING` and `ALLOWED_USERS` set on the Static Web App; two devices or browsers.
+
+- [ ] Signed out: Settings shows Sign in with GitHub, and nothing calls `/api/sync` (Network tab).
+- [ ] Installed iOS app: Sign in with GitHub. Note whether the redirect stays in the app and how long the session lasts (design section 16).
+- [ ] Sign in on device A with sessions, a tag, and a purchase already there: Settings shows the account, then "Last synced", and the pending count falls to 0.
+- [ ] Sign in on device B (empty, or with its own data): both forests show the union. The same-named tag from both devices shows once in the tag list and in Stats.
+- [ ] Buy a different species on each device with the same coins, sync both: each owns the earliest purchase of each species, and nothing is charged twice for one species.
+- [ ] Finish a session on A, show B: it appears on B without a result screen.
+- [ ] Archive a tag on A: it is archived on B after the next sync.
+- [ ] Offline on A (airplane mode), finish a session, go online: "Offline" shows, then the session uploads on reconnect and appears on B.
+- [ ] Reset on A with sync on: the confirmation mentions the cloud copy, and after the next sync the forest comes back.
+- [ ] Import a backup on A with sync on: the confirmation mentions the cloud copy, and the imported records reach B.
+- [ ] Sign in with a GitHub account not in `ALLOWED_USERS`: Settings shows an error, and the API answers 403.
+- [ ] `/.auth/login/aad` answers 404, so only GitHub can sign in.
+- [ ] Sign in as a second allowed account on a device linked to the first: a blocking entry appears; Unlink this device clears it.
+- [ ] `/.auth/login/github` and `/api/sync` open from the installed app or after a service worker update load from the network, not the app shell.
+- [ ] Azure portal: Cosmos RU consumption on the `trees` database stays low; the first sync of a large forest does not throttle.
+- [ ] Preview environment: note whether it shares the production settings.

@@ -3,12 +3,14 @@ import { timerMaxMs, timerMinMs, timerStepMs } from '../lib/config.ts';
 import { durationClamp } from '../lib/duration-clamp.ts';
 import type { StoreApp } from '../lib/store-app.ts';
 import type { FileSave } from '../platform/file-save.ts';
+import type { SyncController } from '../platform/sync-controller.ts';
 import { SettingsData } from './SettingsData.tsx';
+import { SettingsSync } from './SettingsSync.tsx';
 import { SettingsTags } from './SettingsTags.tsx';
 
 const MINUTE_MS = 60_000;
 
-export function SettingsScreen({ store, fileSave }: { store: StoreApp; fileSave: FileSave }) {
+export function SettingsScreen({ store, fileSave, sync }: { store: StoreApp; fileSave: FileSave; sync: SyncController }) {
   const settings = useStore(store, (state) => state.data.settings);
   const locked = useStore(store, (state) => state.guard.corrupt.settings !== undefined);
   const defaultMs = durationClamp(settings.defaultDurationMs);
@@ -69,7 +71,8 @@ export function SettingsScreen({ store, fileSave }: { store: StoreApp; fileSave:
         </label>
       </div>
       <SettingsTags store={store} />
-      <SettingsData store={store} fileSave={fileSave} />
+      <SettingsSync sync={sync} />
+      <SettingsData store={store} fileSave={fileSave} sync={sync} />
     </section>
   );
 }

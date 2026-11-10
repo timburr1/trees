@@ -120,7 +120,7 @@ createRoot(root, {
   onRecoverableError: (error) => console.warn('[trees] recoverable render error', error),
 }).render(
   <StrictMode>
-    <App controller={controller} update={update} />
+    <App controller={controller} update={update} sync={sync} />
   </StrictMode>,
 );
 
