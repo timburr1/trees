@@ -102,3 +102,19 @@ describe('statsTag', () => {
     expect(statsTag([session('a', '2026-06-08T09:00:00-06:00', 0, 'writing')], tags, week, now)).toEqual([]);
   });
 });
+
+describe('statsTag with duplicate tag names', () => {
+  it('counts sessions of same-named tags as one row', () => {
+    const early = tagMake({ id: 'early', name: 'Work', createdAt: 100 });
+    const late = tagMake({ id: 'late', name: 'work', createdAt: 200 });
+    const rows = statsTag(
+      [session('a', '2026-06-08T09:00:00-06:00', 20, 'early'), session('b', '2026-06-09T09:00:00-06:00', 30, 'late')],
+      [late, early],
+      week,
+      now,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'tag', focusedMs: 50 * MINUTE_MS, completed: 2 });
+    expect(rows[0]?.kind === 'tag' ? rows[0].tag.id : '').toBe('early');
+  });
+});

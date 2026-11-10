@@ -1,4 +1,4 @@
-import { tagArchive, tagChosenEffective, tagCreate, tagsActive } from './tag-edit.ts';
+import { tagArchive, tagCanonicalMap, tagChosenEffective, tagCreate, tagsActive, tagsCanonical } from './tag-edit.ts';
 import { tagNameMaxLength } from './config.ts';
 import { at } from '../test/at.ts';
 import { persistedMake, tagMake } from '../test/fixtures.ts';
@@ -95,5 +95,38 @@ describe('tagArchive', () => {
     const again = tagArchive(archived, { id: 't1', now: now + 1 });
     expect(again.rejection).toBe('tag-archived');
     expect(again.state).toBe(archived);
+  });
+});
+
+describe('duplicate names across devices', () => {
+  const early = tagMake({ id: 'b-early', name: 'Work', createdAt: 100 });
+  const late = tagMake({ id: 'a-late', name: 'work', createdAt: 200 });
+  const other = tagMake({ id: 'other', name: 'Reading', createdAt: 150 });
+
+  it('groups tags with one normalized name under the earliest-created one', () => {
+    const map = tagCanonicalMap([late, other, early]);
+    expect(map.get('a-late')?.id).toBe('b-early');
+    expect(map.get('b-early')?.id).toBe('b-early');
+    expect(map.get('other')?.id).toBe('other');
+  });
+
+  it('breaks a creation-time tie by id', () => {
+    const a = tagMake({ id: 'a', name: 'Work', createdAt: 100 });
+    const b = tagMake({ id: 'b', name: 'Work', createdAt: 100 });
+    expect(tagCanonicalMap([b, a]).get('b')?.id).toBe('a');
+  });
+
+  it('lists one tag per name, in stored order', () => {
+    expect(tagsCanonical([late, other, early]).map((tag) => tag.id)).toEqual(['other', 'b-early']);
+  });
+
+  it('treats a group as archived when any member is, and offers none of it', () => {
+    const archivedLate = tagMake({ ...late, archivedAt: 300 });
+    expect(tagsCanonical([early, archivedLate]).map((tag) => tag.archivedAt)).toEqual([300]);
+    expect(tagsActive([early, archivedLate])).toEqual([]);
+  });
+
+  it('offers a tag only once when two share a name', () => {
+    expect(tagsActive([early, late, other]).map((tag) => tag.id)).toEqual(['b-early', 'other']);
   });
 });

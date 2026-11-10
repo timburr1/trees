@@ -1,3 +1,4 @@
+import { tagCanonicalMap } from './tag-edit.ts';
 import { sessionFinishedActiveMs } from './session-growth.ts';
 import { timeRangeDay, type TimeRange } from './time-local.ts';
 import type { SessionFinished, Tag } from './types.ts';
@@ -20,7 +21,7 @@ function rowName(row: StatsTagRow): string {
 
 // Completed sessions only, placed by the same day rule as the other screens. Rows with no focus time are left out, largest first, ties by kind and then name.
 export function statsTag(sessions: readonly SessionFinished[], tags: readonly Tag[], range: TimeRange, now: number): readonly StatsTagRow[] {
-  const known = new Map(tags.map((tag) => [tag.id, tag]));
+  const known = tagCanonicalMap(tags);
   const totals = new Map<string, { identity: StatsTagIdentity; focusedMs: number; completed: number }>();
   for (const session of sessions) {
     if (session.outcome.kind !== 'completed' || timeRangeDay(session.startedAt, range, now) === undefined) {

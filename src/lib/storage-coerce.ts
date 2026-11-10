@@ -153,6 +153,12 @@ export function coerceTag(raw: unknown): Tag {
   };
 }
 
+export function coerceTagArchive(raw: unknown): { readonly tagId: string; readonly archivedAt: number } {
+  const what = 'tag archive';
+  const fields = recordRead(raw, what);
+  return { tagId: fieldString(fields, 'tagId', what), archivedAt: fieldNonNegative(fields, 'archivedAt', what) };
+}
+
 export function coercePurchase(raw: unknown): Purchase {
   const what = 'purchase';
   const fields = recordRead(raw, what);

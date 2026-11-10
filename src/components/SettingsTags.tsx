@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useStore } from '../hooks/useStore.ts';
 import { tagNameMaxLength } from '../lib/config.ts';
 import { selectTagsBlock, type StoreApp } from '../lib/store-app.ts';
-import type { TagRejection } from '../lib/tag-edit.ts';
+import { tagsActive, tagsCanonical, type TagRejection } from '../lib/tag-edit.ts';
 import { idAvailable, idNew } from '../platform/id.ts';
 
 function rejectionText(rejection: TagRejection): string {
@@ -33,8 +33,8 @@ export function SettingsTags({ store }: { store: StoreApp }) {
   const [confirmingId, setConfirmingId] = useState<string | undefined>(undefined);
   const secure = idAvailable();
   const canCreate = secure && !blocked;
-  const active = tags.filter((tag) => tag.archivedAt === undefined);
-  const archivedCount = tags.length - active.length;
+  const active = tagsActive(tags);
+  const archivedCount = tagsCanonical(tags).length - active.length;
 
   function onSubmit(event: { preventDefault: () => void }): void {
     event.preventDefault();

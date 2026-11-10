@@ -19,9 +19,42 @@ function nameKey(name: string): string {
   return nameNormalize(name).toLowerCase();
 }
 
-/** The tags a session can be started with: oldest first, which is stored order, and not archived. */
+function tagBefore(a: Tag, b: Tag): boolean {
+  return a.createdAt < b.createdAt || (a.createdAt === b.createdAt && a.id < b.id);
+}
+
+/**
+ * Two devices can each create a tag with one name before they sync, and both stay stored because sessions refer to them by id.
+ * Every id maps to the earliest-created tag of its name, which carries the group's earliest `archivedAt`, so a group counts as archived when any member is.
+ */
+export function tagCanonicalMap(tags: readonly Tag[]): ReadonlyMap<string, Tag> {
+  const groups = new Map<string, Tag[]>();
+  for (const tag of tags) {
+    const key = nameKey(tag.name);
+    groups.set(key, [...(groups.get(key) ?? []), tag]);
+  }
+  const map = new Map<string, Tag>();
+  for (const members of groups.values()) {
+    const first = members.reduce((best, tag) => (tagBefore(tag, best) ? tag : best));
+    const archived = members.flatMap((tag) => (tag.archivedAt === undefined ? [] : [tag.archivedAt]));
+    const archivedAt = archived.length === 0 ? undefined : Math.min(...archived);
+    const canonical = archivedAt === first.archivedAt ? first : { ...first, archivedAt };
+    for (const tag of members) {
+      map.set(tag.id, canonical);
+    }
+  }
+  return map;
+}
+
+/** One tag per name, in stored order. */
+export function tagsCanonical(tags: readonly Tag[]): readonly Tag[] {
+  const map = tagCanonicalMap(tags);
+  return tags.filter((tag) => map.get(tag.id)?.id === tag.id).map((tag) => map.get(tag.id) ?? tag);
+}
+
+/** The tags a session can be started with: one per name, oldest first, which is stored order, and not archived. */
 export function tagsActive(tags: readonly Tag[]): readonly Tag[] {
-  return tags.filter((tag) => tag.archivedAt === undefined);
+  return tagsCanonical(tags).filter((tag) => tag.archivedAt === undefined);
 }
 
 /** The chosen tag if it can still be picked, else undefined, so a tag archived or gone since it was chosen is simply not selected. */
