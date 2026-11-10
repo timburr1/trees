@@ -33,7 +33,8 @@ export default defineConfig({
         // The forest lives in localStorage, so the app shell is all that needs caching.
         globPatterns: ['**/*.{js,css,html,svg,png}'],
         // A navigation to a path with a file extension is a request for a file, not a page, so it is not answered with the app shell (as SWA's own fallback excludes). The pattern looks at the path only, so a query string that ends in a dotted value still opens the app.
-        navigateFallbackDenylist: [/^[^?]*\.[a-z0-9]+(\?|$)/i],
+        // `/api` and `/.auth` are served by Azure (sync and sign-in), so a navigation there, such as the sign-in redirect, must reach the network.
+        navigateFallbackDenylist: [/^[^?]*\.[a-z0-9]+(\?|$)/i, /^\/api\//, /^\/\.auth/],
       },
     }),
   ],

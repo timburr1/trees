@@ -6,6 +6,8 @@ import { registerSW } from 'virtual:pwa-register';
 import { appControllerMake } from './platform/app-controller.ts';
 import { appUpdateMake } from './platform/app-update.ts';
 import { chimeUnlock } from './platform/chime.ts';
+import { syncApiMake } from './platform/sync-api.ts';
+import { syncControllerMake } from './platform/sync-controller.ts';
 import './index.css';
 
 const root = document.getElementById('root');
@@ -44,6 +46,19 @@ const update = appUpdateMake({
       onRegisterError: callbacks.onRegisterError,
     }),
   now: () => Date.now(),
+  log,
+});
+
+const sync = syncControllerMake({
+  api: syncApiMake((input, init) => fetch(input, init)),
+  app: controller,
+  storageGet: () => window.localStorage,
+  now: () => Date.now(),
+  isOnline: () => navigator.onLine,
+  schedule: (fn, ms) => {
+    const handle = window.setTimeout(fn, ms);
+    return () => window.clearTimeout(handle);
+  },
   log,
 });
 
@@ -88,7 +103,11 @@ window.addEventListener('storage', (event) => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     void update.check();
+    void sync.syncNow();
   }
+});
+window.addEventListener('online', () => {
+  void sync.syncNow();
 });
 // A reload mid-session has no Start click to unlock audio, so the first activating gesture does it. `pointerdown` does not count as activation for touch, so listen for `click` and `pointerup`.
 const unlock = () => chimeUnlock((message) => log(message));
@@ -105,6 +124,7 @@ createRoot(root, {
   </StrictMode>,
 );
 
+sync.start();
 void controller.start();
 // Best effort: ask the browser not to evict our storage under pressure. A refusal is only logged.
 async function storagePersist(): Promise<void> {

@@ -2,8 +2,9 @@ import { sessionGraceMs } from './config.ts';
 import type { SessionAction } from './session-reduce.ts';
 import { selectResultPending, selectUpdateBlock, storeAppMake, type AppState, type StoreApp } from './store-app.ts';
 import { storageGuardEmpty, storageKey } from './storage-slices.ts';
-import type { StorageLoadResult } from './storage-load.ts';
+import { storageLoad, storageLoadEmpty, type StorageLoadResult } from './storage-load.ts';
 import { storageSave } from './storage-save.ts';
+import type { SyncRecord } from './sync-wire.ts';
 import type { Persisted } from './types.ts';
 import { speciesCatalog } from './species-catalog.ts';
 import { persistedMake, purchaseMake, sessionsWithCoins, sessionActiveMake, sessionFinishedMake, settingsMake, uiMake } from '../test/fixtures.ts';
@@ -627,6 +628,7 @@ describe('selectUpdateBlock', () => {
     status: [],
     sessionsBlocked,
     unsaved,
+    replaceCount: 0,
   });
 
   it('allows an update when nothing is running and nothing is unsaved', () => {
@@ -657,5 +659,105 @@ describe('selectUpdateBlock', () => {
     expect(selectUpdateBlock(store.getState())).toBe('unsaved-changes');
     store.settingsSet(settingsMake({ soundOn: true }));
     expect(selectUpdateBlock(store.getState())).toBeUndefined();
+  });
+});
+
+describe('storeAppMake: syncPulledApply', () => {
+  const remoteSession = (id: string, endedAt: number): SyncRecord => ({
+    kind: 'session',
+    id,
+    data: sessionFinishedMake({ id, startedAt: endedAt - 1000, endedAt }),
+  });
+
+  it('merges pulled records through the normal save path', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBe('applied');
+    expect(store.getState().data.sessions.map((session) => session.id)).toEqual(['r1']);
+    expect(storage.getItem(storageKey('sessions'))).toContain('r1');
+    expect(store.getState().unsaved).toBe(false);
+  });
+
+  it('writes nothing when the pull holds nothing new', () => {
+    const { store, storage } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'r1' })], ui: uiMake({ lastAcknowledgedId: 'r1' }) }));
+    expect(store.syncPulledApply([{ kind: 'session', id: 'r1', data: sessionFinishedMake({ id: 'r1' }) }], [])).toBe('applied');
+    expect(storage.log).toEqual([]);
+  });
+
+  it('refuses while a slice it would change is unreadable, and writes nothing', () => {
+    for (const slice of ['sessions', 'purchases', 'tags'] as const) {
+      const { store, storage } = harnessMake(persistedMake(), { [storageKey(slice)]: '{' });
+      expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBe('blocked');
+      expect(storage.log).toEqual([]);
+      expect(storage.getItem(storageKey(slice))).toBe('{');
+    }
+  });
+
+  it('keeps a pulled record that failed validation, written with its slice and reloaded as rejected', () => {
+    const { store, storage } = harnessMake(persistedMake({ sessions: [sessionFinishedMake({ id: 'a' })], ui: uiMake({ lastAcknowledgedId: 'a' }) }));
+    const bad = { id: 'bad', startedAt: 'soon' };
+    expect(store.syncPulledApply([], [{ slice: 'sessions', raw: bad, reason: 'startedAt' }])).toBe('applied');
+    expect(store.getState().guard.rejected.sessions).toEqual([bad]);
+    expect(storage.getItem(storageKey('sessions'))).toContain('"bad"');
+    expect(storageLoad(storage).guard.rejected.sessions).toEqual([bad]);
+  });
+
+  it('does not keep the same rejected record twice', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    const rejected = [{ slice: 'sessions' as const, raw: { id: 'bad' }, reason: 'x' }];
+    store.syncPulledApply([], rejected);
+    store.syncPulledApply([], rejected);
+    expect(store.getState().guard.rejected.sessions).toHaveLength(1);
+    expect(storageLoad(storage).guard.rejected.sessions).toHaveLength(1);
+  });
+
+  it('reports unsaved, and keeps the merge in memory, when the save fails', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    storage.setItemFailNext = quotaError();
+    expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBe('unsaved');
+    expect(store.getState().unsaved).toBe(true);
+    expect(store.getState().data.sessions).toHaveLength(1);
+  });
+
+  it('keeps reporting unsaved on a repeat pull, and saves it once the storage allows', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    storage.setItemFailNext = quotaError();
+    store.syncPulledApply([remoteSession('r1', 5_000)], []);
+    storage.setItemFailNext = quotaError();
+    expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBe('unsaved');
+    expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBe('applied');
+    expect(store.getState().unsaved).toBe(false);
+    expect(storageLoad(storage).data.sessions).toHaveLength(1);
+  });
+
+  it('does nothing and returns undefined once another tab owns the data', () => {
+    const { store, storage } = harnessMake(persistedMake());
+    storage.data.set(ownerKey, 'tab-b');
+    expect(store.syncPulledApply([remoteSession('r1', 5_000)], [])).toBeUndefined();
+    expect(store.getState().data.sessions).toEqual([]);
+    expect(storage.log).toEqual([]);
+  });
+
+  it('drops a local purchase that lost to an earlier one, and saves the result', () => {
+    const { store, storage } = harnessMake(persistedMake({ purchases: [purchaseMake({ id: 'mine', speciesId: 'pine', at: 500 })] }));
+    store.syncPulledApply([{ kind: 'purchase', id: 'theirs', data: purchaseMake({ id: 'theirs', speciesId: 'pine', at: 400 }) }], []);
+    expect(store.getState().data.purchases.map((purchase) => purchase.id)).toEqual(['theirs']);
+    expect(storage.getItem(storageKey('purchases'))).not.toContain('mine');
+  });
+});
+
+describe('storeAppMake: replaceCount', () => {
+  it('starts at zero and rises with every replace', () => {
+    const { store } = harnessMake(persistedMake());
+    expect(store.getState().replaceCount).toBe(0);
+    store.dataReplace(storageLoadEmpty(), 'reset');
+    expect(store.getState().replaceCount).toBe(1);
+    store.dataReplace(storageLoadEmpty(), 'reset');
+    expect(store.getState().replaceCount).toBe(2);
+  });
+
+  it('does not rise when the replace was refused', () => {
+    const { store } = harnessMake(running());
+    expect(store.dataReplace(storageLoadEmpty(), 'reset')).toBe('session-running');
+    expect(store.getState().replaceCount).toBe(0);
   });
 });

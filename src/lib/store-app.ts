@@ -5,6 +5,8 @@ import { statusFromLoad } from './status-load.ts';
 import { tagArchive, tagCreate, type TagArchiveRequest, type TagCreateRequest, type TagResult } from './tag-edit.ts';
 import { storageLoad, type StorageLoadResult } from './storage-load.ts';
 import { storageReplace, storageSave } from './storage-save.ts';
+import { syncMerge } from './sync-merge.ts';
+import type { SyncPulledRejected, SyncRecord } from './sync-wire.ts';
 import type { StorageGuard, StorageLike } from './storage-slices.ts';
 import type { Persisted, SessionFinished, Settings } from './types.ts';
 
@@ -31,6 +33,8 @@ export type AppState = {
   readonly sessionsBlocked: boolean;
   /** What is stored lags what this page holds, so a reload would lose changes. Unlike a status entry, the user cannot dismiss it. */
   readonly unsaved: boolean;
+  /** Rises with every replace of the whole forest (import or reset), so sync knows its bookkeeping no longer matches the data. */
+  readonly replaceCount: number;
 };
 
 export type StoreAppOptions = {
@@ -56,6 +60,12 @@ export type StoreApp = {
   readonly tagArchive: (request: TagArchiveRequest) => TagResult | undefined;
   /** Replaces everything stored with `loaded`. Returns undefined when this tab lost ownership. An import keeps the export time and a reset forgets it. */
   readonly dataReplace: (loaded: StorageLoadResult, kind: DataReplaceKind) => DataReplaceOutcome | undefined;
+  /**
+   * Folds records pulled from the server into the forest through the normal save path.
+   * `blocked` means a slice it would change is unreadable (nothing was written); `unsaved` means the save failed, so the caller must not treat the pull as done.
+   * Returns undefined when this tab lost ownership.
+   */
+  readonly syncPulledApply: (records: readonly SyncRecord[], rejected: readonly SyncPulledRejected[]) => SyncApplyOutcome | undefined;
   readonly settingsSet: (settings: Settings) => void;
   readonly uiExported: (now: number) => void;
   readonly uiAcknowledge: (sessionId: string) => void;
@@ -70,6 +80,8 @@ export type StoreApp = {
 export type DataReplaceKind = 'import' | 'reset';
 
 export type DataReplaceOutcome = 'replaced' | 'session-running' | 'failed';
+
+export type SyncApplyOutcome = 'applied' | 'blocked' | 'unsaved';
 
 /** The finished session the user has not yet seen a result for. Uses array order, because `endedAt` can go backward with the clock. */
 export function selectResultPending(state: AppState): SessionFinished | undefined {
@@ -151,7 +163,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
   }
   const sessionsBlocked = loaded.guard.corrupt.sessions !== undefined;
 
-  let state: AppState = { data: loaded.data, guard: loaded.guard, status, sessionsBlocked, unsaved: false };
+  let state: AppState = { data: loaded.data, guard: loaded.guard, status, sessionsBlocked, unsaved: false, replaceCount: 0 };
 
   function notify(): void {
     for (const listener of [...listeners]) {
@@ -262,8 +274,55 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     for (const input of replaced) {
       nextStatus = statusWith(nextStatus, input);
     }
-    stateSet({ data: next, guard: loaded.guard, status: nextStatus, sessionsBlocked: loaded.guard.corrupt.sessions !== undefined, unsaved: false });
+    stateSet({
+      data: next,
+      guard: loaded.guard,
+      status: nextStatus,
+      sessionsBlocked: loaded.guard.corrupt.sessions !== undefined,
+      unsaved: false,
+      replaceCount: state.replaceCount + 1,
+    });
     return 'replaced';
+  }
+
+  // A pulled record that failed validation is kept like a bad local one, but only once however often it comes back.
+  function rejectedAdd(guard: StorageGuard, rejected: readonly SyncPulledRejected[]): StorageGuard {
+    let next = guard;
+    for (const entry of rejected) {
+      const have = next.rejected[entry.slice] ?? [];
+      const text = JSON.stringify(entry.raw);
+      if (!have.some((existing) => JSON.stringify(existing) === text)) {
+        next = { ...next, rejected: { ...next.rejected, [entry.slice]: [...have, entry.raw] } };
+      }
+    }
+    return next;
+  }
+
+  function syncPulledApply(records: readonly SyncRecord[], rejected: readonly SyncPulledRejected[]): SyncApplyOutcome | undefined {
+    if (!ownerHeld()) {
+      return undefined;
+    }
+    if (state.guard.corrupt.sessions !== undefined || state.guard.corrupt.purchases !== undefined || state.guard.corrupt.tags !== undefined) {
+      return 'blocked';
+    }
+    const merged = syncMerge(state.data, records);
+    const guard = rejectedAdd(state.guard, rejected);
+    if (merged === state.data && guard === state.guard) {
+      // Records an earlier pull merged but could not save are still only in memory, so this one is not done until a save succeeds.
+      if (!state.unsaved) {
+        return 'applied';
+      }
+      return commit(merged) ? (state.unsaved ? 'unsaved' : 'applied') : undefined;
+    }
+    // Rejected records are written along with their slice, and a save writes only slices that changed, so a slice that gained one is copied to count as changed.
+    let next = merged;
+    for (const slice of ['sessions', 'purchases', 'tags'] as const) {
+      if (guard.rejected[slice] !== state.guard.rejected[slice]) {
+        next = { ...next, [slice]: [...next[slice]] };
+      }
+    }
+    stateSet({ ...state, guard });
+    return commit(next) ? (state.unsaved ? 'unsaved' : 'applied') : undefined;
   }
 
   function sessionDispatch(action: SessionAction): SessionReduceResult | undefined {
@@ -321,6 +380,7 @@ export function storeAppMake(options: StoreAppOptions): StoreApp {
     tagCreate: (request) => tagCommit(tagCreate(state.data, request)),
     tagArchive: (request) => tagCommit(tagArchive(state.data, request)),
     dataReplace,
+    syncPulledApply,
     // An unreadable slice is never written, so a change to it would look saved and vanish on reload.
     settingsSet: (settings) => {
       if (state.guard.corrupt.settings === undefined) {

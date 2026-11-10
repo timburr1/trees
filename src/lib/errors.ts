@@ -37,3 +37,51 @@ export class ErrorStorageRollback extends Error {
     this.name = 'ErrorStorageRollback';
   }
 }
+
+/** The sync server says nobody is signed in (401). */
+export class ErrorSyncAuth extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncAuth';
+  }
+}
+
+/** The signed-in account is not allowed to sync (403). */
+export class ErrorSyncDenied extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncDenied';
+  }
+}
+
+/** The account signed in now is not the one this request was made for (409). */
+export class ErrorSyncAccount extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncAccount';
+  }
+}
+
+/** The request never reached the sync server (offline, DNS, a dropped connection). */
+export class ErrorSyncNetwork extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncNetwork';
+  }
+}
+
+/** The sync server failed or refused the request for another reason. */
+export class ErrorSyncServer extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncServer';
+  }
+}
+
+/** The sync server answered with something that is not the documented shape. */
+export class ErrorSyncResponse extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ErrorSyncResponse';
+  }
+}
