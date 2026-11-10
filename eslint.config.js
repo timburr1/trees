@@ -6,7 +6,7 @@ import prettier from 'eslint-config-prettier';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'dev-dist'] },
+  { ignores: ['dist', 'dev-dist', 'api/dist'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
     files: ['**/*.{ts,tsx}'],
@@ -27,6 +27,10 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'error',
       curly: ['error', 'all'],
     },
+  },
+  {
+    files: ['api/**/*.ts'],
+    languageOptions: { globals: globals.node },
   },
   {
     files: ['*.config.{js,ts}'],

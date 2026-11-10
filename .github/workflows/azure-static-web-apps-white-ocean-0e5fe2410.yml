@@ -27,6 +27,11 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The root lint type-checks api/ too, so its dependencies have to be installed first.
+      - name: Install API
+        run: npm ci
+        working-directory: api
+
       # Gates before anything is published. `npm run build` runs `tsc -b`, so a type error fails here.
       - name: Format check
         run: npm run format:check
@@ -40,10 +45,26 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build API
+        run: npm run build:api
+
+      # Sources only: Azure installs and builds the API itself, so node_modules and dist stay out.
+      - name: Stage API
+        run: |
+          mkdir api-deploy
+          cp api/package.json api/package-lock.json api/host.json api/tsconfig.json api/tsconfig.build.json api-deploy/
+          cp -r api/src api-deploy/src
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api
+          path: api-deploy
           if-no-files-found: error
 
   deploy:
@@ -59,6 +80,11 @@ jobs:
         with:
           name: dist
           path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api
+          path: api
 
       # The deploy action needs a GitHub OIDC token in addition to the deployment secret.
       - name: Get ID token
@@ -79,6 +105,8 @@ jobs:
           skip_app_build: true
           app_location: 'dist'
           output_location: ''
+          # Azure installs and builds the API in this job, so its two dependencies (both Microsoft packages) run install scripts next to the deploy token.
+          api_location: 'api'
 
   close_pull_request:
     name: Close pull request

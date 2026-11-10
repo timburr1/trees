@@ -80,7 +80,34 @@ describe('navigationFallback.exclude', () => {
     expect(generated.filter((path) => !covered(path))).toEqual([]);
   });
 
+  it('covers the API, which the fallback must never answer with the app', () => {
+    expect(covered('/api/sync')).toBe(true);
+  });
+
   it('covers the bundled assets', () => {
     expect(covered('/assets/index-abc123.js')).toBe(true);
+  });
+});
+
+describe('API access', () => {
+  // Without the role rule anyone with the URL could reach the function, which then has to refuse them itself.
+  it('requires a signed-in user for every /api route', () => {
+    const parsed: unknown = JSON.parse(configText);
+    const routes: unknown = typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, 'routes') : undefined;
+    const api: unknown = Array.isArray(routes)
+      ? routes.find((route: unknown) => typeof route === 'object' && route !== null && Reflect.get(route, 'route') === '/api/*')
+      : undefined;
+    const roles: unknown = typeof api === 'object' && api !== null ? Reflect.get(api, 'allowedRoles') : undefined;
+    expect(roles).toEqual(['authenticated']);
+  });
+
+  // Static Web Apps enables Entra ID sign-in by default; the allow list names GitHub logins, so only GitHub may sign in.
+  it('closes the default Entra ID sign-in', () => {
+    const parsed: unknown = JSON.parse(configText);
+    const routes: unknown = typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, 'routes') : undefined;
+    const aad: unknown = Array.isArray(routes)
+      ? routes.find((route: unknown) => typeof route === 'object' && route !== null && Reflect.get(route, 'route') === '/.auth/login/aad')
+      : undefined;
+    expect(typeof aad === 'object' && aad !== null ? Reflect.get(aad, 'statusCode') : undefined).toBe(404);
   });
 });

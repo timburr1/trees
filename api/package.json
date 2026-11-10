@@ -1,0 +1,21 @@
+{
+  "name": "trees-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sync API for Trees: an insert-only record store in Cosmos DB behind Static Web Apps auth.",
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "tsc -p tsconfig.build.json -w",
+    "prestart": "npm run build",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.10.1",
+    "@azure/functions": "^4.16.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^6.0.3"
+  }
+}
