@@ -212,5 +212,5 @@ Prerequisites: `COSMOS_CONNECTION_STRING` and `ALLOWED_USERS` set on the Static 
 - [ ] `/.auth/login/aad` answers 404, so only GitHub can sign in.
 - [ ] Sign in as a second allowed account on a device linked to the first: a blocking entry appears; Unlink this device clears it.
 - [ ] `/.auth/login/github` and `/api/sync` open from the installed app or after a service worker update load from the network, not the app shell.
-- [ ] Azure portal: Cosmos RU consumption on the `trees` database stays low; the first sync of a large forest does not throttle.
+- [ ] Azure portal: Cosmos RU consumption on the `records` container stays low; the first sync of a large forest does not throttle.
 - [ ] Preview environment: note whether it shares the production settings.
